@@ -1,6 +1,20 @@
-// Servicio de matching: dada una lista de textos, encuentra productos en el catálogo
+// Servicio de matching: dada una lista de items, encuentra productos en el catálogo
+// Soporta dos formatos de entrada para compatibilidad:
+//   - string[]                 → ["Cuaderno college 100h", "Bolígrafo azul"]      (cantidad=1)
+//   - {nombre, cantidad}[]     → [{nombre: "Cuaderno", cantidad: 3}]              (Bug #1 fix)
 import { Producto, Cotizacion, PedidoItem } from '../domain/entities';
 import { getInventarioAsync } from '../adapters/inventarioAdapter';
+
+export interface ItemEntrada {
+  nombre: string;
+  cantidad: number;
+}
+
+type EntradaCotizar = string | ItemEntrada;
+
+function esItem(obj: EntradaCotizar): obj is ItemEntrada {
+  return typeof obj === 'object' && obj !== null && 'nombre' in obj;
+}
 
 function normalizar(texto: string): string {
   return texto.toLowerCase().trim();
@@ -41,13 +55,38 @@ function levenshtein(a: string, b: string): number {
   return dp[m][n];
 }
 
-export async function cotizar(tenantId: string, listaTextos: string[]): Promise<Cotizacion> {
+/**
+ * Normaliza la entrada a un array de {nombre, cantidad}.
+ * Acepta string[] (compat) o ItemEntrada[].
+ */
+function normalizarEntrada(lista: EntradaCotizar[]): ItemEntrada[] {
+  return lista.map(e => {
+    if (esItem(e)) {
+      return {
+        nombre: e.nombre,
+        cantidad: Number.isFinite(e.cantidad) && e.cantidad > 0 ? Math.floor(e.cantidad) : 1,
+      };
+    }
+    return { nombre: e, cantidad: 1 };
+  });
+}
+
+/**
+ * Cotiza una lista de items contra el inventario del tenant.
+ * - Si el item matchea con un producto, devuelve PedidoItem con la cantidad del input.
+ * - Si no matchea, va a ambiguos.
+ *
+ * IMPORTANTE: las cantidades del input se preservan en el resultado.
+ */
+export async function cotizar(tenantId: string, lista: EntradaCotizar[]): Promise<Cotizacion> {
   const inventario = await getInventarioAsync(tenantId);
+  const itemsNormalizados = normalizarEntrada(lista);
+
   const items: PedidoItem[] = [];
   const ambiguos: string[] = [];
 
-  for (const texto of listaTextos) {
-    const textoNorm = normalizar(texto);
+  for (const item of itemsNormalizados) {
+    const textoNorm = normalizar(item.nombre);
 
     // Buscar mejor coincidencia
     let mejorMatch: Producto | null = null;
@@ -65,12 +104,12 @@ export async function cotizar(tenantId: string, listaTextos: string[]): Promise<
       items.push({
         productoId: mejorMatch.id,
         nombre: mejorMatch.nombre,
-        cantidad: 1,
+        cantidad: item.cantidad, // ← BUG #1 FIX: usar la cantidad del input, no 1 fijo
         precioUnitario: mejorMatch.precio,
         matchConfidence: mejorSimilitud >= 0.8 ? 'alta' : 'baja',
       });
     } else {
-      ambiguos.push(texto);
+      ambiguos.push(item.nombre);
     }
   }
 

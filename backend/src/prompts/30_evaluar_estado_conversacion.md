@@ -36,12 +36,44 @@ Devuelve SOLO el siguiente JSON (sin texto adicional, sin markdown):
 - **CONFIRMAR_LISTA**: el cliente acepta la lista actual tal cual. Solo si el mensaje es inequívoco ("sí", "dale", "correcto", "listo", "ok"). Si tiene cualquier ambigüedad, usa MANTENER_ESTADO.
 - **AGREGAR_ITEMS**: el cliente quiere meter items nuevos a la lista existente.
 - **CONFIRMAR_COTIZACION**: el cliente acepta la cotización con su total. Misma regla que CONFIRMAR_LISTA.
-- **ELEGIR_LOGISTICA**: el cliente eligió retiro o envío.
-- **ELEGIR_PAGO**: el cliente eligió método de pago.
+- **ELEGIR_LOGISTICA**: el cliente eligió retiro o envío. PALABRAS CLAVE: "retiro", "retirar", "local", "tienda", "paso a buscar", "voy a buscar", "envío", "envio", "domicilio", "mandar a casa", "me lo llevan".
+- **ELEGIR_PAGO**: el cliente eligió método de pago. PALABRAS CLAVE: "transferencia", "efectivo", "tarjeta", "contra entrega", "pago en".
 - **ESCALAR_HUMANO**: si hay frustración, palabras como "no entiende", "ya le expliqué", o si el cliente pide hablar con alguien.
 - **PREGUNTAR_VARIANTE**: si hay variantes en el catálogo y el cliente tiene que elegir.
 - **MANTENER_ESTADO**: si el mensaje no es claro o no se puede clasificar. Mantener el estado actual y re-preguntar.
 - **CANCELAR**: si el cliente dice "cancelar", "ya no quiero", "olvida".
+
+### Ejemplos few-shot por estado (úsalos para clasificar)
+
+**Ejemplo 1** — estado actual CONFIRMANDO_LOGISTICA:
+- Cliente: "voy a retirar en el local"
+- decision: **ELEGIR_LOGISTICA** (palabra "retirar" + "local" = retiro en tienda)
+- siguiente_paso: CONFIRMANDO_PAGO
+
+**Ejemplo 2** — estado actual CONFIRMANDO_LOGISTICA:
+- Cliente: "mándamelo a casa por favor"
+- decision: **ELEGIR_LOGISTICA** (sinónimos: "mándamelo" + "a casa" = envío a domicilio)
+- siguiente_paso: CONFIRMANDO_PAGO
+
+**Ejemplo 3** — estado actual CONFIRMANDO_COTIZACION:
+- Cliente: "dale, confirmo"
+- decision: **CONFIRMAR_COTIZACION** (acepta el total)
+- siguiente_paso: CONFIRMANDO_LOGISTICA
+
+**Ejemplo 4** — estado actual CONFIRMANDO_LISTA:
+- Cliente: "sí, está bien"
+- decision: **CONFIRMAR_LISTA** (confirma la lista tal cual)
+- siguiente_paso: CONFIRMANDO_COTIZACION
+
+**Ejemplo 5** — estado actual CONFIRMANDO_LOGISTICA:
+- Cliente: "confirmo todo"
+- decision: **MANTENER_ESTADO** (ambiguo: ¿confirma logística, cotización, o todo? No se sabe)
+- siguiente_paso: CONFIRMANDO_LOGISTICA
+
+**Ejemplo 6** — estado actual CONFIRMANDO_LOGISTICA:
+- Cliente: "sí"
+- decision: **MANTENER_ESTADO** (demasiado corto, ambiguo entre logística/pago/cualquier cosa)
+- siguiente_paso: CONFIRMANDO_LOGISTICA
 
 ### `confianza` (0.0 a 1.0):
 - 0.0 si no entendiste nada

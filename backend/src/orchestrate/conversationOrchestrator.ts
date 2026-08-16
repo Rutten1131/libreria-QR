@@ -271,8 +271,12 @@ async function aplicarEfectosEstado(
 
   // Si el cliente confirmo la lista, cotizamos
   if (estadoFinal === 'CONFIRMANDO_COTIZACION' && decisionIA.decision === 'CONFIRMAR_LISTA') {
-    const nombres = (ctx.items_parseados ?? []).map((i: any) => i.nombre);
-    const cotizacion = await cotizar(entrada.tenantId, nombres);
+    // FIX Bug #1: pasar items con cantidad (no solo nombres)
+    const itemsParaCotizar = (ctx.items_parseados ?? []).map((i: any) => ({
+      nombre: i.nombre,
+      cantidad: Number.isFinite(i.cantidad) && i.cantidad > 0 ? i.cantidad : 1,
+    }));
+    const cotizacion = await cotizar(entrada.tenantId, itemsParaCotizar);
     ctx.cotizacion = {
       items: cotizacion.items,
       total: cotizacion.total,
