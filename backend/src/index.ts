@@ -74,6 +74,32 @@ app.post('/api/whatsapp/webhook', async (req, res) => {
   return webhookWhatsapp(req, res);
 });
 
+// ============================================================
+// AUTH (operador)
+// ============================================================
+import { postMagicLink, postVerifyOTP, getMe, requireOperador } from './api/auth';
+app.post('/api/auth/magic-link', postMagicLink);
+app.post('/api/auth/verify', postVerifyOTP);
+app.get('/api/auth/me', requireOperador, getMe);
+
+// ============================================================
+// ADMIN (operador autenticado)
+// ============================================================
+import { listarTenants, crearTenant, verTenant, verWhatsappTenant } from './api/admin';
+app.get('/api/admin/tenants', requireOperador, listarTenants);
+app.post('/api/admin/tenants', requireOperador, crearTenant);
+app.get('/api/admin/tenants/:id', requireOperador, verTenant);
+app.get('/api/admin/tenants/:id/whatsapp', requireOperador, verWhatsappTenant);
+
+// ============================================================
+// WHATSAPP CONNECT (operador autenticado)
+// ============================================================
+import { conectarWhatsapp, whatsappQR, whatsappStatus, desconectarWhatsapp } from './api/whatsappConnect';
+app.post('/api/admin/tenants/:id/whatsapp/conectar', requireOperador, conectarWhatsapp);
+app.get('/api/admin/tenants/:id/whatsapp/qr', requireOperador, whatsappQR);
+app.get('/api/admin/tenants/:id/whatsapp/status', requireOperador, whatsappStatus);
+app.delete('/api/admin/tenants/:id/whatsapp', requireOperador, desconectarWhatsapp);
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
