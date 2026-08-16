@@ -67,6 +67,12 @@ app.post('/api/admin/inventario/cargar', async (req, res) => {
   }
 });
 
+// POST /api/whatsapp/webhook/:tenantId — webhook de Evolution API
+app.post('/api/whatsapp/webhook/:tenantId', async (req, res) => {
+  const { webhookWhatsapp } = await import('./api/whatsappWebhook');
+  return webhookWhatsapp(req, res);
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
