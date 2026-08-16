@@ -101,7 +101,8 @@ Acceso vía enlace enviado por WhatsApp, sin usuario/contraseña tradicional, pe
 - Paneles: Next.js (frontend + backend del panel en un mismo proyecto).
 - Pago con tarjeta (Canal 2 web): integración con Payphone.
 - Despliegue: paneles y canal web en Vercel; proceso de conexión persistente con WhatsApp en Railway o VPS propio (Vercel no sirve para conexiones persistentes).
-- Base de datos: VPS propio, no Supabase (evita el cambio de condiciones de free tier ya notificado, da control total).
+- Base de datos: **Supabase** (Postgres gestionado). Decisión vigente al 2026-08-16 — revisión después del MVP. Si en producción se necesita control total o evitar lock-in, migrar a VPS propio con Postgres (esquema ya pensado para portar sin cambios estructurales).
+- Servicio de IA (cascada): **Groq** + **Gemini** como APIs iniciales (gratuitas / low-cost). Presupuesto de APIs de pago reservado para escalar (Riesgo #10 del PRD).
 
 ### A.9 Manejo de fallos y observabilidad
 
