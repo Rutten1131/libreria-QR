@@ -1,75 +1,293 @@
 'use client';
 
-import Header from '@/components/Header';
-
-const COMANDAS_MOCK = [
-  {
-    id: 'ped_003',
-    cliente: 'Ana López',
-    direccion: 'Av. Amazonas 1234, Quito',
-    items: ['2x Cuaderno college', '1x Agenda 2026'],
-    total: 10.00,
-    despachador: null,
-    estado: 'pendiente',
-    hora: '14:30',
-  },
-  {
-    id: 'ped_001',
-    cliente: 'María González',
-    direccion: 'Av. España 567, Quito',
-    items: ['3x Cuaderno college', '5x Lápiz 2B'],
-    total: 10.00,
-    despachador: 'Juan',
-    estado: 'tomado',
-    hora: '14:45',
-  },
-];
+import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { listarComandas } from '@/lib/api';
+import { useTenant } from '@/lib/tenant';
+import type { Comanda } from '@/lib/types';
 
 export default function DespachosPage() {
-  const tomarComanda = (id: string) => {
-    console.log('Tomar comanda:', id);
+  const tenant = useTenant();
+  const [comandas, setComandas] = useState<Comanda[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let vivo = true;
+    setLoading(true);
+    listarComandas(tenant).then((data) => {
+      if (vivo) {
+        setComandas(data);
+        setLoading(false);
+      }
+    });
+    return () => { vivo = false; };
+  }, [tenant]);
+
+  const tomar = (id: string) => {
+    setComandas((prev) =>
+      prev.map((c) =>
+        c.pedido_id === id ? { ...c, tomado_por: 'Yo' } : c
+      )
+    );
   };
 
+  const pendientes = comandas.filter((c) => !c.tomado_por);
+  const enProceso = comandas.filter((c) => c.tomado_por);
+
   return (
-    <>
-      <Header />
-      <main>
-        <h2>Despachos — Librería El Sol</h2>
-        <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1rem' }}>
-          Cada pedido confirmado aparece como comanda. Quien lo toma queda responsable del despacho.
-        </p>
-        <div style={{ display: 'grid', gap: '0.8rem' }}>
-          {COMANDAS_MOCK.map(comanda => (
-            <div key={comanda.id} style={{ background: '#fff', borderRadius: '8px', padding: '1rem', border: '2px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <strong style={{ fontSize: '1.1rem' }}>{comanda.cliente}</strong>
-                  <div style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.2rem' }}>{comanda.direccion}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#888' }}>{comanda.hora}</div>
-                  <div style={{ fontWeight: '700', fontSize: '1.1rem', marginTop: '0.2rem' }}>${comanda.total.toFixed(2)}</div>
-                </div>
-              </div>
-              <div style={{ marginTop: '0.6rem', padding: '0.5rem', background: '#f5f5f5', borderRadius: '4px' }}>
-                {comanda.items.map((item, i) => (
-                  <div key={i} style={{ fontSize: '0.9rem' }}>• {item}</div>
+    <main className="lqr-main">
+      <div className="lqr-container">
+        <h1 className="lqr-title">Despachos</h1>
+        <p className="lqr-sub">Toma una comanda para hacerte responsable del despacho.</p>
+
+        {loading ? (
+          <div className="lqr-loading">
+            <span className="lqr-spinner" aria-hidden />
+            <p>Cargando comandas…</p>
+          </div>
+        ) : (
+          <>
+            <section className="lqr-section">
+              <header className="lqr-section__head">
+                <span className="lqr-dot lqr-dot--warn" aria-hidden />
+                <h2 className="lqr-section__title">Pendientes</h2>
+                <span className="lqr-section__count">{pendientes.length}</span>
+              </header>
+              <div className="lqr-grid">
+                {pendientes.map((c, i) => (
+                  <ComandaCard key={c.pedido_id} c={c} i={i} onTomar={() => tomar(c.pedido_id)} />
                 ))}
-              </div>
-              <div style={{ marginTop: '0.7rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.85rem', color: '#888' }}>
-                  {comanda.despachador ? `Tomado por: ${comanda.despachador}` : 'Sin tomar'}
-                </span>
-                {!comanda.despachador && (
-                  <button onClick={() => tomarComanda(comanda.id)} style={{ background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: '6px', padding: '0.5rem 1.2rem', cursor: 'pointer', fontSize: '0.9rem' }}>
-                    Tomar comanda
-                  </button>
+                {pendientes.length === 0 && (
+                  <p className="lqr-empty">No hay comandas pendientes.</p>
                 )}
               </div>
-            </div>
-          ))}
+            </section>
+
+            <section className="lqr-section">
+              <header className="lqr-section__head">
+                <span className="lqr-dot lqr-dot--accent" aria-hidden />
+                <h2 className="lqr-section__title">En proceso</h2>
+                <span className="lqr-section__count">{enProceso.length}</span>
+              </header>
+              <div className="lqr-grid">
+                {enProceso.map((c, i) => (
+                  <ComandaCard key={c.pedido_id} c={c} i={i} />
+                ))}
+                {enProceso.length === 0 && (
+                  <p className="lqr-empty">Nadie está despachando aún.</p>
+                )}
+              </div>
+            </section>
+          </>
+        )}
+      </div>
+
+      <style jsx>{`
+        .lqr-main {
+          padding: 24px 0 64px;
+          min-height: calc(100vh - 64px);
+        }
+        .lqr-container {
+          max-width: 920px;
+          margin: 0 auto;
+          padding: 0 20px;
+        }
+        .lqr-title {
+          font-size: 26px;
+          font-weight: 600;
+          letter-spacing: -0.02em;
+          color: var(--text-primary);
+          margin-bottom: 4px;
+        }
+        .lqr-sub {
+          font-size: 13px;
+          color: var(--text-secondary);
+          margin-bottom: 24px;
+        }
+        .lqr-section { margin-bottom: 32px; }
+        .lqr-section__head {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        .lqr-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+        .lqr-dot--warn { background: var(--warn); }
+        .lqr-dot--accent { background: var(--accent); }
+        .lqr-section__title {
+          flex: 1;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-primary);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .lqr-section__count {
+          font-size: 12px;
+          color: var(--text-muted);
+          padding: 2px 8px;
+          border-radius: 8px;
+          background: var(--glass-bg);
+        }
+        .lqr-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+        .lqr-empty {
+          grid-column: 1 / -1;
+          padding: 32px 0;
+          text-align: center;
+          color: var(--text-muted);
+          background: var(--glass-bg);
+          border: 1px solid var(--glass-stroke);
+          border-radius: var(--radius-lg);
+        }
+        .lqr-loading {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 80px 0;
+          gap: 16px;
+          color: var(--text-secondary);
+        }
+        .lqr-spinner {
+          width: 24px;
+          height: 24px;
+          border: 2px solid var(--glass-stroke);
+          border-top-color: var(--accent);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 600px) {
+          .lqr-grid { grid-template-columns: 1fr; }
+          .lqr-title { font-size: 22px; }
+          .lqr-container { padding: 0 14px; }
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function ComandaCard({ c, i, onTomar }: { c: Comanda; i: number; onTomar?: () => void }) {
+  return (
+    <motion.article
+      className="lqr-comanda glass"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: i * 0.04 }}
+    >
+      <div className="lqr-comanda__head">
+        <strong className="lqr-comanda__name">{c.cliente}</strong>
+        <span className="lqr-comanda__id">#{c.pedido_id.slice(-6)}</span>
+      </div>
+      <div className="lqr-comanda__addr">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+          <circle cx="12" cy="10" r="3" />
+        </svg>
+        <span>{c.direccion}</span>
+      </div>
+      <ul className="lqr-comanda__items">
+        {c.items.map((it, idx) => (
+          <li key={idx}>
+            <span className="lqr-comanda__qty">{it.cantidad}×</span> {it.nombre}
+          </li>
+        ))}
+      </ul>
+      {onTomar ? (
+        <button type="button" className="lqr-take" onClick={onTomar}>
+          Tomar comanda
+        </button>
+      ) : (
+        <div className="lqr-taken">
+          <span className="lqr-taken__dot" aria-hidden />
+          Despachado por {c.tomado_por}
         </div>
-      </main>
-    </>
+      )}
+
+      <style jsx>{`
+        .lqr-comanda {
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .lqr-comanda__head {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .lqr-comanda__name {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+        .lqr-comanda__id {
+          font-size: 11px;
+          color: var(--text-muted);
+          font-variant-numeric: tabular-nums;
+        }
+        .lqr-comanda__addr {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+        .lqr-comanda__items {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+          font-size: 13px;
+          color: var(--text-primary);
+        }
+        .lqr-comanda__items li {
+          padding: 4px 0;
+        }
+        .lqr-comanda__qty {
+          font-weight: 600;
+          color: var(--text-muted);
+          font-variant-numeric: tabular-nums;
+        }
+        .lqr-take {
+          width: 100%;
+          padding: 12px 16px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #fff;
+          background: var(--accent);
+          border-radius: 12px;
+          transition: transform 180ms var(--ease-out), opacity 180ms var(--ease-out);
+        }
+        .lqr-take:hover { transform: translateY(-1px); }
+        .lqr-take:active { transform: translateY(0); }
+        .lqr-taken {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          background: var(--accent-soft);
+          color: var(--accent);
+          border-radius: 10px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        .lqr-taken__dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--accent);
+        }
+      `}</style>
+    </motion.article>
   );
 }

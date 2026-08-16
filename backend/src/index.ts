@@ -67,8 +67,9 @@ app.post('/api/admin/inventario/cargar', async (req, res) => {
   }
 });
 
-// POST /api/whatsapp/webhook/:tenantId — webhook de Evolution API
-app.post('/api/whatsapp/webhook/:tenantId', async (req, res) => {
+// POST /api/whatsapp/webhook — webhook unificado de Evolution API
+// El tenant se discrimina por payload.instance → tenant_whatsapp en BD
+app.post('/api/whatsapp/webhook', async (req, res) => {
   const { webhookWhatsapp } = await import('./api/whatsappWebhook');
   return webhookWhatsapp(req, res);
 });

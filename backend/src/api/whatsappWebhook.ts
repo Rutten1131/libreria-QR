@@ -1,15 +1,12 @@
 // Endpoint del webhook de Evolution API.
-// Ruta: POST /api/whatsapp/webhook/:tenantId
-// CRITICO (Hito 9 seguridad): el :tenantId del path debe validarse
-// contra la instance autenticada. Sin validacion cruzada, alguien
-// podria inyectar mensajes a tenants ajenos.
+// Ruta: POST /api/whatsapp/webhook (sin :tenantId en el path)
+// El tenant se resuelve desde payload.instance → tenant_whatsapp de la BD.
 import { Request, Response } from 'express';
 import { getSupabase } from '../adapters/supabaseClient';
 import { procesarListaCliente } from '../orchestrate/whatsappOrchestrator';
 import { validarWebhookEvolution, enviarMensaje } from '../adapters/evolutionAdapter';
 
 export async function webhookWhatsapp(req: Request, res: Response) {
-  const { tenantId } = req.params;
   const payload = req.body;
 
   try {
@@ -30,12 +27,8 @@ export async function webhookWhatsapp(req: Request, res: Response) {
     if (e1 || !tw) {
       return res.status(404).json({ error: 'instance no registrada' });
     }
-    if (tw.tenant_id !== tenantId) {
-      console.error(`[seguridad] webhook cross-tenant detectado: instance=${datos.instanceName} esperaba=${tenantId} llego=${tw.tenant_id}`);
-      return res.status(403).json({ error: 'instance no corresponde al tenant' });
-    }
 
-    // 3. Resolver tenant real (de la BD, no del path — defensa en profundidad)
+    // 3. Resolver tenant real desde la BD
     const tenantIdReal = tw.tenant_id;
 
     // 4. Procesar lista
