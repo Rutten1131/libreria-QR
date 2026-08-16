@@ -1,74 +1,108 @@
 ---
 name: gpt-taste
-description: Elite UX/UI & Advanced GSAP Motion Engineer. Enforces Python-driven true randomization for layout variance, strict AIDA page structure, wide editorial typography (bans 6-line wraps), gapless bento grids, strict GSAP ScrollTriggers (pinning, stacking, scrubbing), inline micro-images, and massive section spacing.
+description: Use para definir el sistema visual y de motion premium de las superficies de LibreríaQR — landings, portal del cliente del Canal 2, futuras piezas de marketing. NO usar para los paneles internos (esos los cubre `impeccable` en modo Operate).
 ---
 
-# CORE DIRECTIVE: AWWWARDS-LEVEL DESIGN ENGINEERING
-You are an elite, award-winning frontend design engineer. Standard LLMs possess severe statistical biases: they generate massive 6-line wrapped headings by using narrow containers, leave ugly empty gaps in bento grids, use cheap meta-labels ("QUESTION 05", "SECTION 01"), output invisible button text, and endlessly repeat the same Left/Right layouts. 
+# Skill — GPT Taste (adaptada a LibreríaQR)
 
-Your goal is to aggressively break these defaults. Your outputs must be highly creative, perfectly spaced, motion-rich (GSAP), mathematically flawless in grid execution, and heavily rely on varied, high-end assets.
+## Directiva Central — Diseño a nivel de portfolio
 
-DO NOT USE EMOJIS IN YOUR CODE, COMMENTS, OR OUTPUT. Maintain strictly professional formatting.
+Aplicás esta skill cuando la superficie es marketing/persuasión: canal web del cliente final (Canal 2 del PRD), landing de captación para nuevas papelerías, presentaciones comerciales. **No** la apliqués a los paneles internos (Inventario/Pedidos/Despachos) — esos viven en modo Operate y los cubre `impeccable`.
 
-## 1. PYTHON-DRIVEN TRUE RANDOMIZATION (BREAKING THE LOOP)
-LLMs are inherently lazy and always pick the first layout option. To prevent this, you MUST simulate a Python script execution in your `<design_plan>` before writing any UI code. 
-Use a deterministic seed (e.g., character count of the user prompt modulo math) to simulate `random.choice()` and strictly select:
-- 1 Hero Architecture (from Section 3)
-- 1 Typography Stack (Satoshi, Cabinet Grotesk, Outfit, or Geist. NEVER Inter)
-- 3 Unique Component Architectures (from Section 6)
-- 2 Advanced GSAP Paradigms (from Section 5)
-You are forbidden from defaulting to the same UI twice. You must follow the exact output of your simulated Python randomization.
+## Anti-defaults activos (los que todo LLM cae a evitarlos)
 
-## 2. AIDA STRUCTURE & SPACING
-Every page MUST begin with a highly creative, premium Navigation Bar (e.g., floating glass pill, or minimal split nav).
-The rest of the page MUST follow the AIDA framework:
-- **Attention (Hero):** Cinematic, clean, wide layout.
-- **Interest (Features/Bento):** High-density, mathematically perfect grid or interactive typographic components.
-- **Desire (GSAP Scroll/Media):** Pinned sections, horizontal scroll, or text-reveals.
-- **Action (Footer/Pricing):** Massive, high-contrast CTA and clean footer links.
-**SPACING RULE:** Add huge vertical padding between all major sections (e.g., `py-32 md:py-48`). Sections must feel like distinct, cinematic chapters. Do not cramp elements together.
+- ❌ Headings gigantes con 6 líneas envueltas por contenedores angostos
+- ❌ Bento grids con celdas vacías / huecos muertos
+- ❌ Etiquetas meta baratas ("PASO 01", "BLOQUE 02")
+- ❌ Botones con texto invisible (bajo contraste)
+- ❌ Layout Left/Right repetido sin variación
+- ❌ Emojis en código, comentarios o output
 
-## 3. HERO ARCHITECTURE & THE 2-LINE IRON RULE
-The Hero must breathe. It must NOT be a narrow, 6-line text wall.
-- **The Container Width Fix:** You MUST use ultra-wide containers for the H1 (e.g., `max-w-5xl`, `max-w-6xl`, `w-full`). Allow the words to flow horizontally.
-- **The Line Limit:** The H1 MUST NEVER exceed 2 to 3 lines. 4, 5, or 6 lines is a catastrophic failure. Make the font size smaller (`clamp(3rem, 5vw, 5.5rem)`) and the container wider to ensure this.
-- **Hero Layout Options (Randomly Assigned via Python):**
-  1. *Cinematic Center (Highly Preferred):* Text perfectly centered, massive width. Below the text, exactly two high-contrast CTAs. Below the CTAs or behind everything, a stunning, full-bleed background image with a dark radial wash.
-  2. *Artistic Asymmetry:* Text offset to the left, with an artistic floating image overlapping the text from the bottom right.
-  3. *Editorial Split:* Text left, image right, but with massive negative space.
-- **Button Contrast:** Buttons must be perfectly legible. Dark background = white text. Light background = dark text. Invisible text is a failure.
-- **BANNED IN HERO:** Do NOT use arbitrary floating stamp/badge icons on the text. Do NOT use pill-tags under the hero. Do NOT place raw data/stats in the hero.
+## 1. Aleatorización determinística (romper el loop)
 
-## 4. THE GAPLESS BENTO GRID
-- **Zero Empty Space in Grids:** LLMs notoriously leave blank, dead cells in CSS grids. You MUST use Tailwind's `grid-flow-dense` (`grid-auto-flow: dense`) on every Bento Grid. You must mathematically verify that your `col-span` and `row-span` values interlock perfectly. No grid shall have a missing corner or empty void.
-- **Card Restraint:** Do not use too many cards. 3 to 5 highly intentional, beautifully styled cards are better than 8 messy ones. Fill them with a mix of large imagery, dense typography, or CSS effects.
+Para que dos páginas del proyecto no se vean iguales, **antes de codear** elegí explícitamente:
+- 1 arquitectura de hero (de las 3 abajo)
+- 1 stack tipográfico (Satoshi / Cabinet Grotesk / Outfit / Geist — nunca Inter)
+- 3 componentes únicos del arsenal
+- 2 paradigmas de motion (de la sección 5)
 
-## 5. ADVANCED GSAP MOTION & HOVER PHYSICS
-Static interfaces are strictly forbidden. You must write real GSAP (`@gsap/react`, `ScrollTrigger`).
-- **Hover Physics:** Every clickable card and image must react. Use `group-hover:scale-105 transition-transform duration-700 ease-out` inside `overflow-hidden` containers.
-- **Scroll Pinning (GSAP Split):** Pin a section title on the left (`ScrollTrigger pin: true`) while a gallery of elements scrolls upwards on the right side.
-- **Image Scale & Fade Scroll:** Images must start small (`scale: 0.8`). As they scroll into view, they grow to `scale: 1.0`. As they scroll out of view, they smoothly darken and fade out (`opacity: 0.2`).
-- **Scrubbing Text Reveals:** Opacity of central paragraph words starts at 0.1 and scrubs to 1.0 sequentially as the user scrolls.
-- **Card Stacking:** Cards overlap and stack on top of each other dynamically from the bottom as the user scrolls down.
+Anotá la elección en el `<design_plan>` antes de tocar CSS.
 
-## 6. COMPONENT ARSENAL & CREATIVITY
-Select components from this arsenal based on your randomization:
-- **Inline Typography Images:** Embed small, pill-shaped images directly INSIDE massive headings. Example: `I shape <span className="inline-block w-24 h-10 rounded-full align-middle bg-cover bg-center mx-2" style={{backgroundImage: 'url(...)'}}></span> digital spaces.`
-- **Horizontal Accordions:** Vertical slices that expand horizontally on hover to reveal content and imagery.
-- **Infinite Marquee (Trusted Partners):** Smooth, continuously scrolling rows of authentic `@phosphor-icons/react` or large typography.
-- **Feedback/Testimonial Carousel:** Clean, overlapping portrait images next to minimalist typography quotes, controlled by subtle arrows.
+## 2. Estructura AIDA
 
-## 7. CONTENT, ASSETS & STRICT BANS
-- **The Meta-Label Ban:** BANNED FOREVER are labels like "SECTION 01", "SECTION 04", "QUESTION 05", "ABOUT US". Remove them entirely. They look cheap and unprofessional.
-- **Image Context & Style:** Use `https://picsum.photos/seed/{keyword}/1920/1080` and match the keyword to the vibe. Apply sophisticated CSS filters (`grayscale`, `mix-blend-luminosity`, `opacity-90`, `contrast-125`) so they do not look like boring stock photos.
-- **Creative Backgrounds:** Inject subtle, professional ambient design. Use deep radial blurs, grainy mesh gradients, or shifting dark overlays. Avoid flat, boring colors.
-- **Horizontal Scroll Bug:** Wrap the entire page in `<main className="overflow-x-hidden w-full max-w-full">` to absolutely prevent horizontal scrollbars caused by off-screen animations.
+Toda superficie de marketing sigue AIDA:
+- **Attention (Hero):** cinematográfico, limpio, ancho.
+- **Interest (Features/Bento):** alta densidad, grid matemáticamente perfecto.
+- **Desire (GSAP Scroll/Media):** secciones pinned, scroll horizontal, text-reveal.
+- **Action (Footer/Pricing):** CTA masivo, alto contraste, footer limpio.
 
-## 8. MANDATORY PRE-FLIGHT <design_plan>
-Before writing ANY React/UI code, you MUST output a `<design_plan>` block containing:
-1. **Python RNG Execution:** Write a 3-line mock Python output showing the deterministic selection of your Hero Layout, Component Arsenal, GSAP animations, and Fonts based on the prompt's character count.
-2. **AIDA Check:** Confirm the page contains Navigation, Attention (Hero), Interest (Bento), Desire (GSAP), Action (Footer).
-3. **Hero Math Verification:** Explicitly state the `max-w` class you are applying to the H1 to GUARANTEE it will flow horizontally in 2-3 lines. Confirm NO stamp icons or spam tags exist.
-4. **Bento Density Verification:** Prove mathematically that your grid columns and rows leave zero empty spaces and `grid-flow-dense` is applied.
-5. **Label Sweep & Button Check:** Confirm no cheap meta-labels ("QUESTION 05") exist, and button text contrast is perfect.
-Only output the UI code after this rigorous verification is complete.
+**Spacing:** padding vertical enorme entre secciones (`py-32 md:py-48` estilo). Cada sección es un capítulo cinematográfico, no se aprietan elementos.
+
+## 3. Hero — la regla de las 2 líneas
+
+El H1 debe fluir horizontalmente, **máximo 2-3 líneas**.
+
+```css
+/* Aplicar a contenedores de H1 */
+max-w-5xl, max-w-6xl o w-full
+font-size: clamp(3rem, 5vw, 5.5rem)
+```
+
+Layouts de hero (elegir 1 al azar):
+1. **Cinematic Center:** texto centrado, ancho máximo, dos CTAs abajo, fondo full-bleed con wash radial oscuro.
+2. **Asimetría artística:** texto offset a la izquierda, imagen flotante superpuesta desde abajo-derecha.
+3. **Split editorial:** texto a la izquierda, imagen a la derecha, espacio negativo masivo.
+
+**Baneados en el hero:**
+- ❌ Floating stamps / badges arbitrarios sobre el texto
+- ❌ Pill-tags bajo el hero
+- ❌ Stats / raw data en el hero
+
+## 4. Bento grid gapless
+
+En cada grid usar `grid-auto-flow: dense`. **Matemáticamente** verificar que `col-span` y `row-span` encajen perfecto. Sin huecos muertos.
+
+Card restraint: 3-5 cards altamente intencionales > 8 cards mediocres.
+
+## 5. Motion avanzada (GSAP)
+
+Interfaces estáticas prohibidas en superficies de marketing. Usar `@gsap/react` + `ScrollTrigger`.
+
+- **Hover physics:** `group-hover:scale-105 transition-transform duration-700 ease-out` dentro de `overflow-hidden`.
+- **Pinning:** título pinned a la izquierda (`ScrollTrigger pin: true`), galeria scrolleando a la derecha.
+- **Image scale & fade:** `scale: 0.8` → `1.0` al entrar; fade a `opacity: 0.2` al salir.
+- **Scrubbing text reveals:** palabras de opacity 0.1 a 1.0 secuencial al scrollear.
+- **Card stacking:** cards que se montan al scrollear.
+
+## 6. Arsenal de componentes
+
+- **Inline typography images:** imágenes pill-shape embebidas dentro del H1 — `I shape <span className="inline-block w-24 h-10 rounded-full ..."></span> digital spaces.`
+- **Horizontal accordions:** slices verticales que se expanden al hover.
+- **Infinite marquee:** filas continuas con `@phosphor-icons/react` o tipografía grande.
+- **Testimonial carousel:** retratos superpuestos + tipografía minimalista + flechas sutiles.
+
+## 7. Contenido y assets
+
+- **Imágenes:** `https://picsum.photos/seed/{keyword}/1920/1080` — keyword matchea el vibe. Aplicar `grayscale`, `mix-blend-luminosity`, `opacity-90`, `contrast-125` para que no parezcan stock.
+- **Backgrounds creativos:** radial blurs sutiles, mesh gradients con grano, dark overlays shifting. Evitar colores planos aburridos.
+- **Horizontal scroll bug fix:** `<main className="overflow-x-hidden w-full max-w-full">` siempre.
+
+## 8. Pre-flight obligatorio
+
+Antes de escribir cualquier código de UI de marketing, emitir un bloque `<design_plan>` con:
+
+1. **RNG ejecutada:** 3 líneas mostrando la elección determinística de Hero / Componentes / GSAP / Fonts.
+2. **AIDA check:** Navigation + Attention + Interest + Desire + Action presentes.
+3. **Hero math verification:** `max-w` aplicado, 2-3 líneas garantizadas, sin stamps/badges.
+4. **Bento density:** grid-flow-dense aplicado, col/row-span perfectos, 0 huecos.
+5. **Label sweep:** cero "QUESTION 05", cero "SECTION 01".
+6. **Button check:** contraste perfecto en todos los CTAs.
+
+Solo después de este check se emite el código.
+
+## Adaptación a LibreríaQR — restricciones específicas
+
+- Lo que produce esta skill debe pasar por la skill `verificador` antes de "listo".
+- No contradecir `.agent/rules/00-vision.md` (A.3 reglas no negociables).
+- El "Look premium" del cliente final no debe delatar los tenants (PRD Riesgo #11: "QR no expone catálogo navegable; cotización solo tras lista completa").
+- Mobile-first SIEMPRE — la papelería y el cliente final usan celular.
