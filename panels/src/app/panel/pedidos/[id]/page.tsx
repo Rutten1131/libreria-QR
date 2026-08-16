@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { listarPedidos } from '@/lib/api';
 import { useTenant } from '@/lib/tenant';
+import Avatar from '@/components/Avatar';
 import type { Pedido } from '@/lib/types';
 
 export default function DetallePedidoPage() {
@@ -67,9 +68,12 @@ export default function DetallePedidoPage() {
           transition={{ duration: 0.32 }}
         >
           <header className="lqr-detail__head">
-            <div>
-              <h1 className="lqr-detail__name">{pedido.cliente_nombre}</h1>
-              <p className="lqr-detail__id">Pedido #{pedido.id.slice(-6)}</p>
+            <div className="lqr-detail__who">
+              <Avatar nombre={pedido.cliente_nombre} size={56} online />
+              <div>
+                <h1 className="lqr-detail__name">{pedido.cliente_nombre}</h1>
+                <p className="lqr-detail__id">Pedido #{pedido.id.slice(-6)}</p>
+              </div>
             </div>
             <span className={`lqr-pill lqr-pill--${pillFor(pedido.estado)}`}>
               {labelFor(pedido.estado)}
@@ -116,13 +120,13 @@ export default function DetallePedidoPage() {
 
       <style jsx>{`
         .lqr-main {
-          padding: 24px 0 64px;
+          padding: 40px 0 96px;
           min-height: calc(100vh - 64px);
         }
         .lqr-container {
           max-width: 560px;
           margin: 0 auto;
-          padding: 0 20px;
+          padding: 0 28px;
         }
         .lqr-back {
           display: inline-flex;
@@ -130,8 +134,8 @@ export default function DetallePedidoPage() {
           gap: 6px;
           font-size: 13px;
           color: var(--text-secondary);
-          margin-bottom: 20px;
-          padding: 8px 12px;
+          margin-bottom: 24px;
+          padding: 10px 14px;
           border-radius: 10px;
           transition: background 180ms var(--ease-out), color 180ms var(--ease-out);
         }
@@ -140,34 +144,41 @@ export default function DetallePedidoPage() {
           color: var(--text-primary);
         }
         .lqr-detail {
-          padding: 24px;
+          padding: 32px;
         }
         .lqr-detail__head {
           display: flex;
           justify-content: space-between;
           align-items: flex-start;
           gap: 12px;
-          margin-bottom: 16px;
+          margin-bottom: 24px;
+        }
+        .lqr-detail__who {
+          display: flex;
+          gap: 16px;
+          align-items: center;
         }
         .lqr-detail__name {
-          font-size: 22px;
-          font-weight: 600;
-          letter-spacing: -0.02em;
+          font-size: 26px;
+          font-weight: 700;
+          letter-spacing: -0.03em;
           color: var(--text-primary);
+          line-height: 1.1;
         }
         .lqr-detail__id {
           font-size: 12px;
           color: var(--text-muted);
-          margin-top: 2px;
+          margin-top: 4px;
           font-variant-numeric: tabular-nums;
+          letter-spacing: 0.02em;
         }
         .lqr-pill {
           font-size: 11px;
-          font-weight: 500;
-          padding: 5px 10px;
+          font-weight: 600;
+          padding: 6px 12px;
           border-radius: 8px;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.06em;
           white-space: nowrap;
         }
         .lqr-pill--warn {
@@ -185,45 +196,47 @@ export default function DetallePedidoPage() {
         .lqr-detail__contact {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
           font-size: 13px;
           color: var(--text-secondary);
-          padding: 10px 12px;
+          padding: 14px 16px;
           background: var(--glass-bg);
           border: 1px solid var(--glass-stroke);
-          border-radius: 10px;
-          margin-bottom: 20px;
+          border-radius: 14px;
+          margin-bottom: 28px;
+          font-weight: 500;
         }
         .lqr-items {
           list-style: none;
           padding: 0;
-          margin: 0 0 20px;
+          margin: 0 0 28px;
         }
         .lqr-items__row {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 10px 0;
+          gap: 16px;
+          padding: 14px 0;
           border-bottom: 1px solid var(--glass-stroke);
         }
         .lqr-items__row:last-child {
           border-bottom: none;
         }
         .lqr-items__qty {
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 600;
           color: var(--text-muted);
           font-variant-numeric: tabular-nums;
-          min-width: 24px;
+          min-width: 28px;
         }
         .lqr-items__name {
           flex: 1;
-          font-size: 14px;
+          font-size: 15px;
           color: var(--text-primary);
+          font-weight: 500;
         }
         .lqr-items__price {
-          font-size: 14px;
-          font-weight: 500;
+          font-size: 15px;
+          font-weight: 600;
           color: var(--text-primary);
           font-variant-numeric: tabular-nums;
         }
@@ -231,40 +244,43 @@ export default function DetallePedidoPage() {
           display: flex;
           justify-content: space-between;
           align-items: baseline;
-          padding: 16px 0;
-          margin-bottom: 20px;
+          padding: 20px 0;
+          margin-bottom: 24px;
           border-top: 1px solid var(--glass-stroke);
           border-bottom: 1px solid var(--glass-stroke);
         }
         .lqr-total span {
-          font-size: 13px;
+          font-size: 12px;
           color: var(--text-secondary);
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.08em;
+          font-weight: 600;
         }
         .lqr-total strong {
-          font-size: 24px;
+          font-size: 32px;
           font-weight: 600;
           color: var(--text-primary);
           font-variant-numeric: tabular-nums;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.03em;
         }
         .lqr-warning {
-          padding: 12px 14px;
+          padding: 14px 16px;
           background: var(--warn-soft);
           color: var(--warn);
-          border-radius: 12px;
+          border-radius: 14px;
           font-size: 13px;
-          margin-bottom: 20px;
+          margin-bottom: 24px;
+          font-weight: 500;
         }
         .lqr-cta {
           width: 100%;
-          padding: 16px 24px;
+          padding: 18px 24px;
           font-size: 15px;
           font-weight: 600;
           color: #fff;
           background: var(--accent);
-          border-radius: 14px;
+          border-radius: 16px;
+          letter-spacing: -0.01em;
           transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out), opacity 180ms var(--ease-out);
           box-shadow: var(--shadow-glow);
         }
@@ -298,10 +314,14 @@ export default function DetallePedidoPage() {
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        @media (max-width: 720px) {
+          .lqr-detail { padding: 24px; }
+          .lqr-container { padding: 0 18px; }
+        }
         @media (max-width: 480px) {
-          .lqr-detail { padding: 18px; }
-          .lqr-detail__name { font-size: 20px; }
-          .lqr-container { padding: 0 14px; }
+          .lqr-detail { padding: 20px; }
+          .lqr-detail__name { font-size: 22px; }
+          .lqr-total strong { font-size: 26px; }
         }
       `}</style>
     </main>

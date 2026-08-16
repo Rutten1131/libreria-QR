@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { listarPedidos } from '@/lib/api';
 import { useTenant } from '@/lib/tenant';
+import Avatar from '@/components/Avatar';
 import type { Pedido, EstadoPedido } from '@/lib/types';
 
 const COLUMNAS: { id: EstadoPedido; label: string; accent: 'warn' | 'info' | 'accent' }[] = [
@@ -127,7 +128,7 @@ export default function PedidosPage() {
         ) : (
           <div className="lqr-board">
             {COLUMNAS.map((col) => (
-              <section key={col.id} className={`lqr-col glass lqr-col--${col.accent}`}>
+              <section key={col.id} className={`lqr-col lqr-col--${col.accent}`}>
                 <header className="lqr-col__head">
                   <span className={`lqr-col__dot lqr-col__dot--${col.accent}`} aria-hidden />
                   <h2 className="lqr-col__title">{col.label}</h2>
@@ -146,11 +147,16 @@ export default function PedidosPage() {
                         transition={{ duration: 0.3, delay: i * 0.04 }}
                       >
                         <Link href={`/panel/pedidos/${p.id}`} className="lqr-card__link">
-                          <div className="lqr-card__top">
-                            <strong className="lqr-card__name">{p.cliente_nombre}</strong>
-                            <span className="lqr-card__time">{formatRelativo(p.created_at)}</span>
+                          <div className="lqr-card__row">
+                            <Avatar nombre={p.cliente_nombre} size={44} />
+                            <div className="lqr-card__main">
+                              <div className="lqr-card__top">
+                                <strong className="lqr-card__name">{p.cliente_nombre}</strong>
+                                <span className="lqr-card__time">{formatRelativo(p.created_at)}</span>
+                              </div>
+                              <div className="lqr-card__id">#{p.id.slice(-6)}</div>
+                            </div>
                           </div>
-                          <div className="lqr-card__id">#{p.id.slice(-6)}</div>
                           <div className="lqr-card__items">
                             {p.items.slice(0, 2).map((it, idx) => (
                               <span key={idx} className="lqr-card__item">
@@ -159,7 +165,7 @@ export default function PedidosPage() {
                             ))}
                             {p.items.length > 2 && (
                               <span className="lqr-card__item lqr-card__item--more">
-                                +{p.items.length - 2} más
+                                +{p.items.length - 2}
                               </span>
                             )}
                           </div>
@@ -185,52 +191,55 @@ export default function PedidosPage() {
       <style jsx>{`
         .lqr-main {
           min-height: calc(100vh - 64px);
-          padding: 24px 0 64px;
+          padding: 40px 0 96px;
         }
         .lqr-container {
           max-width: 1280px;
           margin: 0 auto;
-          padding: 0 20px;
+          padding: 0 28px;
         }
 
         /* Summary */
         .lqr-summary {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-          margin-bottom: 20px;
+          gap: 16px;
+          margin-bottom: 32px;
         }
         .lqr-summary__item {
           display: flex;
           flex-direction: column;
-          padding: 16px 20px;
+          padding: 24px 28px;
           background: var(--glass-bg);
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
           border: 1px solid var(--glass-stroke);
-          border-radius: var(--radius-lg);
+          border-radius: var(--radius-xl);
         }
         .lqr-summary__num {
-          font-size: 28px;
+          font-size: 40px;
           font-weight: 600;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.03em;
           color: var(--text-primary);
+          line-height: 1;
+          font-variant-numeric: tabular-nums;
         }
         .lqr-summary__label {
           font-size: 12px;
           color: var(--text-muted);
           text-transform: uppercase;
-          letter-spacing: 0.06em;
-          margin-top: 2px;
+          letter-spacing: 0.08em;
+          margin-top: 10px;
+          font-weight: 500;
         }
 
         /* Search */
         .lqr-search {
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
-          margin-bottom: 24px;
+          gap: 12px;
+          padding: 16px 20px;
+          margin-bottom: 28px;
           color: var(--text-secondary);
         }
         .lqr-search input {
@@ -238,119 +247,140 @@ export default function PedidosPage() {
           background: transparent;
           border: none;
           outline: none;
-          font-size: 14px;
+          font-size: 15px;
           color: var(--text-primary);
+          font-weight: 500;
         }
         .lqr-search input::placeholder {
           color: var(--text-muted);
+          font-weight: 400;
         }
 
         /* Board */
         .lqr-board {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
+          gap: 20px;
           align-items: start;
         }
 
         .lqr-col {
-          padding: 16px;
+          padding: 20px;
           min-height: 320px;
         }
         .lqr-col__head {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-bottom: 12px;
-          padding-bottom: 12px;
+          gap: 10px;
+          margin-bottom: 16px;
+          padding-bottom: 16px;
           border-bottom: 1px solid var(--glass-stroke);
         }
         .lqr-col__dot {
           width: 8px;
           height: 8px;
           border-radius: 50%;
+          flex-shrink: 0;
         }
         .lqr-col__dot--warn { background: var(--warn); }
         .lqr-col__dot--info { background: var(--info); }
         .lqr-col__dot--accent { background: var(--accent); }
         .lqr-col__title {
           flex: 1;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
-          color: var(--text-primary);
+          color: var(--text-secondary);
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.08em;
         }
         .lqr-col__count {
           font-size: 12px;
           color: var(--text-muted);
-          padding: 2px 8px;
+          padding: 4px 10px;
           border-radius: 8px;
           background: var(--glass-bg);
+          font-variant-numeric: tabular-nums;
+          font-weight: 500;
         }
         .lqr-col__list {
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          gap: 12px;
         }
         .lqr-col__empty {
           font-size: 13px;
           color: var(--text-muted);
           text-align: center;
-          padding: 24px 0;
+          padding: 32px 0;
         }
 
         /* Card */
         .lqr-card {
           padding: 0;
           overflow: hidden;
-          transition: transform 180ms var(--ease-out),
-                      border-color 180ms var(--ease-out);
+          transition: transform 240ms var(--ease-out),
+                      border-color 240ms var(--ease-out);
         }
         .lqr-card:hover {
-          transform: translateY(-2px);
+          transform: translateY(-3px);
           border-color: var(--glass-stroke-strong);
         }
         .lqr-card__link {
           display: block;
-          padding: 14px;
+          padding: 18px 20px;
+        }
+        .lqr-card__row {
+          display: flex;
+          gap: 14px;
+          align-items: center;
+          margin-bottom: 14px;
+        }
+        .lqr-card__main {
+          flex: 1;
+          min-width: 0;
         }
         .lqr-card__top {
           display: flex;
           justify-content: space-between;
           align-items: baseline;
-          gap: 8px;
-          margin-bottom: 4px;
+          gap: 12px;
+          margin-bottom: 2px;
         }
         .lqr-card__name {
-          font-size: 14px;
+          font-size: 15px;
           font-weight: 600;
           color: var(--text-primary);
+          letter-spacing: -0.01em;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .lqr-card__time {
-          font-size: 11px;
+          font-size: 12px;
           color: var(--text-muted);
           flex-shrink: 0;
+          font-variant-numeric: tabular-nums;
         }
         .lqr-card__id {
           font-size: 11px;
           color: var(--text-muted);
-          margin-bottom: 8px;
           font-variant-numeric: tabular-nums;
+          letter-spacing: 0.02em;
         }
         .lqr-card__items {
           display: flex;
           flex-wrap: wrap;
-          gap: 4px;
-          margin-bottom: 10px;
+          gap: 6px;
+          margin-bottom: 14px;
         }
         .lqr-card__item {
-          font-size: 11px;
-          padding: 3px 8px;
+          font-size: 12px;
+          padding: 4px 10px;
           background: var(--glass-bg);
           border: 1px solid var(--glass-stroke);
-          border-radius: 6px;
+          border-radius: 8px;
           color: var(--text-secondary);
+          font-weight: 500;
         }
         .lqr-card__item--more {
           color: var(--text-muted);
@@ -359,21 +389,24 @@ export default function PedidosPage() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 8px;
+          gap: 12px;
+          padding-top: 12px;
+          border-top: 1px solid var(--glass-stroke);
         }
         .lqr-card__total {
-          font-size: 16px;
+          font-size: 18px;
           font-weight: 600;
           color: var(--text-primary);
           font-variant-numeric: tabular-nums;
+          letter-spacing: -0.01em;
         }
         .lqr-card__action {
           font-size: 10px;
-          padding: 4px 8px;
-          border-radius: 6px;
-          font-weight: 500;
+          padding: 5px 10px;
+          border-radius: 7px;
+          font-weight: 600;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.06em;
         }
         .lqr-card__action--warn {
           background: var(--warn-soft);
@@ -410,7 +443,6 @@ export default function PedidosPage() {
           to { transform: rotate(360deg); }
         }
 
-        /* Mobile: stacks verticales */
         @media (max-width: 900px) {
           .lqr-board {
             grid-template-columns: 1fr;
@@ -419,15 +451,18 @@ export default function PedidosPage() {
             min-height: auto;
           }
         }
-        @media (max-width: 480px) {
+        @media (max-width: 720px) {
           .lqr-summary {
             grid-template-columns: 1fr;
           }
           .lqr-container {
-            padding: 0 14px;
+            padding: 0 18px;
           }
           .lqr-main {
-            padding: 16px 0 48px;
+            padding: 24px 0 96px;
+          }
+          .lqr-summary__num {
+            font-size: 32px;
           }
         }
       `}</style>

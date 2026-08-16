@@ -84,32 +84,33 @@ export default function DespachosPage() {
 
       <style jsx>{`
         .lqr-main {
-          padding: 24px 0 64px;
+          padding: 40px 0 96px;
           min-height: calc(100vh - 64px);
         }
         .lqr-container {
           max-width: 920px;
           margin: 0 auto;
-          padding: 0 20px;
+          padding: 0 28px;
         }
         .lqr-title {
-          font-size: 26px;
-          font-weight: 600;
-          letter-spacing: -0.02em;
+          font-size: 32px;
+          font-weight: 700;
+          letter-spacing: -0.03em;
           color: var(--text-primary);
-          margin-bottom: 4px;
+          margin-bottom: 6px;
+          line-height: 1.1;
         }
         .lqr-sub {
-          font-size: 13px;
+          font-size: 14px;
           color: var(--text-secondary);
-          margin-bottom: 24px;
+          margin-bottom: 32px;
         }
-        .lqr-section { margin-bottom: 32px; }
+        .lqr-section { margin-bottom: 36px; }
         .lqr-section__head {
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-bottom: 12px;
+          gap: 10px;
+          margin-bottom: 16px;
         }
         .lqr-dot {
           width: 8px;
@@ -120,32 +121,34 @@ export default function DespachosPage() {
         .lqr-dot--accent { background: var(--accent); }
         .lqr-section__title {
           flex: 1;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
-          color: var(--text-primary);
+          color: var(--text-secondary);
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.08em;
         }
         .lqr-section__count {
           font-size: 12px;
           color: var(--text-muted);
-          padding: 2px 8px;
+          padding: 4px 10px;
           border-radius: 8px;
           background: var(--glass-bg);
+          font-variant-numeric: tabular-nums;
+          font-weight: 500;
         }
         .lqr-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
+          gap: 16px;
         }
         .lqr-empty {
           grid-column: 1 / -1;
-          padding: 32px 0;
+          padding: 40px 0;
           text-align: center;
           color: var(--text-muted);
           background: var(--glass-bg);
           border: 1px solid var(--glass-stroke);
-          border-radius: var(--radius-lg);
+          border-radius: var(--radius-xl);
         }
         .lqr-loading {
           display: flex;
@@ -166,10 +169,12 @@ export default function DespachosPage() {
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        @media (max-width: 720px) {
+          .lqr-container { padding: 0 18px; }
+        }
         @media (max-width: 600px) {
           .lqr-grid { grid-template-columns: 1fr; }
-          .lqr-title { font-size: 22px; }
-          .lqr-container { padding: 0 14px; }
+          .lqr-title { font-size: 26px; }
         }
       `}</style>
     </main>

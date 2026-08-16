@@ -21,10 +21,7 @@ export default function Header() {
             <path d="M3 7h18M3 12h18M3 17h12" />
           </svg>
         </div>
-        <div className="lqr-header__title">
-          <span className="lqr-header__name">LibreríaQR</span>
-          <span className="lqr-header__sub">Panel</span>
-        </div>
+        <span className="lqr-header__name">LibreríaQR</span>
       </div>
 
       <nav className="lqr-header__nav" aria-label="Secciones">
@@ -54,21 +51,21 @@ export default function Header() {
           z-index: 50;
           display: flex;
           align-items: center;
-          gap: 16px;
-          padding: 14px 20px;
+          gap: 24px;
+          padding: 20px 28px;
           background: var(--glass-bg);
-          backdrop-filter: blur(24px) saturate(180%);
-          -webkit-backdrop-filter: blur(24px) saturate(180%);
+          backdrop-filter: blur(28px) saturate(180%);
+          -webkit-backdrop-filter: blur(28px) saturate(180%);
           border-bottom: 1px solid var(--glass-stroke);
         }
         .lqr-header__brand {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
         }
         .lqr-header__logo {
-          width: 38px;
-          height: 38px;
+          width: 36px;
+          height: 36px;
           border-radius: 12px;
           background: var(--accent-soft);
           color: var(--accent);
@@ -76,34 +73,23 @@ export default function Header() {
           align-items: center;
           justify-content: center;
         }
-        .lqr-header__title {
-          display: flex;
-          flex-direction: column;
-          line-height: 1.1;
-        }
         .lqr-header__name {
-          font-size: 15px;
-          font-weight: 600;
+          font-size: 17px;
+          font-weight: 700;
           color: var(--text-primary);
-          letter-spacing: -0.01em;
-        }
-        .lqr-header__sub {
-          font-size: 11px;
-          color: var(--text-muted);
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
+          letter-spacing: -0.02em;
         }
         .lqr-header__nav {
           display: flex;
           gap: 4px;
           margin-left: auto;
-          padding: 4px;
+          padding: 5px;
           background: var(--glass-bg);
           border: 1px solid var(--glass-stroke);
           border-radius: 14px;
         }
         .lqr-tab {
-          padding: 8px 14px;
+          padding: 9px 16px;
           font-size: 13px;
           font-weight: 500;
           color: var(--text-secondary);
@@ -114,6 +100,7 @@ export default function Header() {
         .lqr-tab--active {
           background: var(--glass-bg-hover);
           color: var(--text-primary);
+          font-weight: 600;
         }
         .lqr-header__right {
           display: flex;
@@ -121,24 +108,14 @@ export default function Header() {
           gap: 8px;
         }
 
-        /* Mobile: tabs abajo mas espacioso, header mas compacto */
+        /* Mobile: header compacto, nav oculta (se va a bottom nav) */
         @media (max-width: 720px) {
           .lqr-header {
-            padding: 10px 14px;
-            gap: 10px;
+            padding: 14px 18px;
+            gap: 12px;
           }
-          .lqr-header__logo { width: 34px; height: 34px; }
-          .lqr-header__sub { display: none; }
           .lqr-header__nav {
-            margin-left: 0;
-            flex: 1;
-            justify-content: space-between;
-          }
-          .lqr-tab {
-            padding: 8px 10px;
-            font-size: 12px;
-            flex: 1;
-            text-align: center;
+            display: none;
           }
         }
       `}</style>

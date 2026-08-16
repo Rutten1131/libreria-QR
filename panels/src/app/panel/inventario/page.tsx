@@ -117,61 +117,65 @@ export default function InventarioPage() {
 
       <style jsx>{`
         .lqr-main {
-          padding: 24px 0 64px;
+          padding: 40px 0 96px;
           min-height: calc(100vh - 64px);
         }
         .lqr-container {
           max-width: 720px;
           margin: 0 auto;
-          padding: 0 20px;
+          padding: 0 28px;
         }
         .lqr-title {
-          font-size: 26px;
-          font-weight: 600;
-          letter-spacing: -0.02em;
+          font-size: 32px;
+          font-weight: 700;
+          letter-spacing: -0.03em;
           color: var(--text-primary);
-          margin-bottom: 4px;
+          margin-bottom: 6px;
+          line-height: 1.1;
         }
         .lqr-sub {
-          font-size: 13px;
+          font-size: 14px;
           color: var(--text-secondary);
-          margin-bottom: 24px;
+          margin-bottom: 32px;
         }
         .lqr-search {
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 12px 16px;
+          gap: 12px;
+          padding: 16px 20px;
           color: var(--text-secondary);
-          margin-bottom: 12px;
+          margin-bottom: 16px;
         }
         .lqr-search input {
           flex: 1;
           background: transparent;
           border: none;
           outline: none;
-          font-size: 14px;
+          font-size: 15px;
           color: var(--text-primary);
+          font-weight: 500;
         }
-        .lqr-search input::placeholder { color: var(--text-muted); }
+        .lqr-search input::placeholder { color: var(--text-muted); font-weight: 400; }
         .lqr-filter {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 16px;
+          margin-bottom: 20px;
           font-size: 13px;
         }
         .lqr-toggle {
           display: inline-flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
           color: var(--text-secondary);
           cursor: pointer;
+          font-weight: 500;
         }
-        .lqr-toggle input { accent-color: var(--accent); }
+        .lqr-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
         .lqr-count {
           color: var(--text-muted);
           font-variant-numeric: tabular-nums;
+          font-weight: 500;
         }
         .lqr-list {
           list-style: none;
@@ -179,13 +183,13 @@ export default function InventarioPage() {
           margin: 0;
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 10px;
         }
         .lqr-row {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 14px 16px;
+          gap: 16px;
+          padding: 18px 22px;
         }
         .lqr-row__main {
           flex: 1;
@@ -193,23 +197,26 @@ export default function InventarioPage() {
         }
         .lqr-row__name {
           display: block;
-          font-size: 14px;
-          font-weight: 500;
+          font-size: 15px;
+          font-weight: 600;
           color: var(--text-primary);
-          margin-bottom: 2px;
+          margin-bottom: 4px;
+          letter-spacing: -0.01em;
         }
         .lqr-row__meta {
           font-size: 12px;
           color: var(--text-muted);
           text-transform: capitalize;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0.02em;
         }
         .lqr-pill {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
-          padding: 6px 12px;
+          gap: 7px;
+          padding: 8px 14px;
           font-size: 12px;
-          font-weight: 500;
+          font-weight: 600;
           border-radius: 10px;
           flex-shrink: 0;
           transition: background 180ms var(--ease-out), color 180ms var(--ease-out);
@@ -229,12 +236,12 @@ export default function InventarioPage() {
           color: var(--danger);
         }
         .lqr-empty {
-          padding: 40px 0;
+          padding: 48px 0;
           text-align: center;
           color: var(--text-muted);
           background: var(--glass-bg);
           border: 1px solid var(--glass-stroke);
-          border-radius: var(--radius-lg);
+          border-radius: var(--radius-xl);
         }
         .lqr-loading {
           display: flex;
@@ -255,10 +262,12 @@ export default function InventarioPage() {
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        @media (max-width: 720px) {
+          .lqr-container { padding: 0 18px; }
+        }
         @media (max-width: 480px) {
-          .lqr-container { padding: 0 14px; }
-          .lqr-row { padding: 12px 14px; }
-          .lqr-title { font-size: 22px; }
+          .lqr-row { padding: 16px 18px; }
+          .lqr-title { font-size: 26px; }
         }
       `}</style>
     </main>
