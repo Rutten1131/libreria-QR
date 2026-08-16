@@ -1,29 +1,29 @@
-// Servicio de pedidos
-import { Pedido, Cotizacion, PedidoItem } from '../domain/entities';
+// Servicio de pedidos — Supabase
+import { Cotizacion, Pedido } from '../domain/entities';
 import { guardarPedido, getPedidos } from '../adapters/pedidoAdapter';
 
-export function crearPedido(cotizacion: Cotizacion, clienteNombre: string, clienteTelefono: string): Pedido {
+export async function crearPedido(
+  cotizacion: Cotizacion,
+  clienteNombre: string,
+  clienteTelefono: string,
+  canal: 'whatsapp' | 'web' = 'whatsapp'
+): Promise<Pedido> {
   const accionPendiente = cotizacion.ambiguos.length > 0
-    ? 'Revisar ítems no identificados'
+    ? 'Confirmar variante o reescribir lista'
     : 'Verificar pago recibido';
 
-  const pedido: Pedido = {
-    id: `ped_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+  return guardarPedido({
     tenantId: cotizacion.tenantId,
     clienteNombre,
     clienteTelefono,
+    canal,
     items: cotizacion.items,
     total: cotizacion.total,
-    estado: 'necesita_revision',
     accionPendiente,
-    fechaCreacion: new Date(),
-    fechaActualizacion: new Date(),
-  };
-
-  guardarPedido(pedido);
-  return pedido;
+    itemsAmbiguos: cotizacion.ambiguos,
+  });
 }
 
-export function obtenerPedidos(tenantId: string): Pedido[] {
+export async function obtenerPedidos(tenantId: string): Promise<Pedido[]> {
   return getPedidos(tenantId);
 }
