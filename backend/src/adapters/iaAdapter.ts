@@ -2,7 +2,8 @@
 // Si Groq falla, escala a revision humana (cumple Riesgo #16 del PRD)
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const GROQ_MODEL_VISION = 'llama-3.2-90b-vision-preview';
+const GROQ_MODEL_TEXT = 'llama-3.1-8b-instant';
 
 export interface OCRResult {
   texto: string;
@@ -48,7 +49,7 @@ Devuelve SOLO el texto, una linea por item, sin introduccion ni conclusion.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: GROQ_MODEL_VISION,
       messages: [
         {
           role: 'user',
@@ -138,7 +139,7 @@ Devuelve SOLO las lineas, sin explicacion.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: GROQ_MODEL_TEXT,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.0,
       max_tokens: 512,
