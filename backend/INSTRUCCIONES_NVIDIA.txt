@@ -1,0 +1,10 @@
+PEGAR LA API KEY DE NVIDIA EN ESTE ARCHIVO .env (NO EN EL CHAT)
+
+1. Abrir c:\Users\Cesar\Documents\GRUPO EMPRESARIAL REYES\PROYECTOS\libreriasQR\backend\.env con el bloc de notas
+2. Reemplazar la línea 5 que dice NVIDIA_API_KEY=<PEGAR-AQUI>
+   por: NVIDIA_API_KEY=nvapi-XXXXXXXXXXXXXXXXX  (tu key real)
+3. Guardar
+4. Decir "listo" al chat para que el agente continue
+
+NO PEGAR LA KEY EN EL CHAT.
+NO SUBIR EL .env A GIT (ya está en .gitignore).

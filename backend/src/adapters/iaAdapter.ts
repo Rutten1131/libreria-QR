@@ -1,19 +1,65 @@
-// Adapter de IA — cascada Groq → NVIDIA
-// 1) Intenta Groq (rapido y barato)
-// 2) Si Groq falla (429, 5xx, timeout), escala a NVIDIA NIM
-// 3) Si ambos fallan, lanza error → orchestrator escala a humano
-
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL_VISION = 'llama-3.2-90b-vision-preview';
-const GROQ_MODEL_TEXT = 'llama-3.1-8b-instant';
+// Adapter de IA — cascade NVIDIA NIM (sin Groq, decisión 2026-08-16)
+// Estrategia: 9 modelos distintos de 3 proveedores (Meta, Mistral, NVIDIA)
+// Cada modelo es un "Free Endpoint" de build.nvidia.com → costo cero
+// Diversificación: si un proveedor/modelo falla, otro lo rescata
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
-// OCR: omni-modal (imagen + texto). Funciona con content multimodal estilo OpenAI
-const NVIDIA_MODEL_VISION = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning';
-// Chat: modelo rapido optimizado para tareas agentic
-const NVIDIA_MODEL_TEXT = 'stepfun-ai/step-3.7-flash';
 
-export type Fuente = 'groq' | 'nvidia';
+interface ModeloPerfil {
+  id: string;
+  vision: boolean;
+  proveedor: 'meta' | 'mistral' | 'nvidia' | 'openai';
+  descripcion: string;
+  temperature: number;
+}
+
+const MODELOS: Record<string, ModeloPerfil> = {
+  // === OCR / Vision ===
+  NEMOTRON_OMNI: {
+    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+    vision: true,
+    proveedor: 'nvidia',
+    descripcion: 'Nemotron omni. Unico modelo vision confirmado funcional.',
+    temperature: 0.01,
+  },
+
+  // === Chat / Texto ===
+  NEMOTRON_ULTRA: {
+    id: 'nvidia/nemotron-3-ultra-550b-a55b',
+    vision: false,
+    proveedor: 'nvidia',
+    descripcion: 'Nemotron Ultra 550B. Unico modelo texto confirmado funcional.',
+    temperature: 0.01,
+  },
+  MISTRAL_NEMOTRON: {
+    id: 'mistralai/mistral-nemotron',
+    vision: false,
+    proveedor: 'mistral',
+    descripcion: 'Mistral Nemotron. Fallback agentic (no testeado).',
+    temperature: 0.01,
+  },
+};
+
+// === Orden de cascade ===
+
+// Vision: solo nemotron-omni (todos los demas fallaron o no existen)
+// Los modelos vision de Llama interpretan el prompt como problema de coding → NO USABLES
+const CASCADE_VISION = ['NEMOTRON_OMNI'];
+
+// Texto: nemotron-ultra como primario, mistral-nemotron como fallback
+// APRENDIZAJE 2026-08-16:
+// - nemotron-ultra: FUNCIONA (inconsistente, razona en voz alta pero post-procesador corrige)
+// - nemotron-lighting: 404 (no existe con ese nombre)
+// - nemotron-nano: no disponible como texto (vision-only)
+// - Llama 8B/70B: tratan el prompt como problema de coding → NO USABLES
+// - GPT-OSS 120B: Downloadable (pago), no disponible en free tier → 404
+// - step-3.7-flash: respuesta vacia → NO USABLE
+const CASCADE_TEXT = [
+  'NEMOTRON_ULTRA',      // primario: el unico confirmado que funciona
+  'MISTRAL_NEMOTRON',    // fallback: agentic, no testeado todavia
+];
+
+export type Fuente = keyof typeof MODELOS;
 
 export interface OCRResult {
   texto: string;
@@ -26,43 +72,18 @@ export interface LLMResult {
   fuente: Fuente;
 }
 
-interface ProveedorConfig {
-  url: string;
-  visionModel: string;
-  textModel: string;
-  apiKey: string | undefined;
-  nombre: 'groq' | 'nvidia';
-  apiKeyEnv: string;
-}
-
-function getProveedor(nombre: 'groq' | 'nvidia'): ProveedorConfig {
-  if (nombre === 'groq') {
-    return {
-      url: GROQ_API_URL,
-      visionModel: GROQ_MODEL_VISION,
-      textModel: GROQ_MODEL_TEXT,
-      apiKey: process.env.GROQ_API_KEY,
-      nombre: 'groq',
-      apiKeyEnv: 'GROQ_API_KEY',
-    };
+function getApiKey(): string {
+  const key = process.env.NVIDIA_API_KEY;
+  if (!key) {
+    throw new Error('NVIDIA_API_KEY no esta en .env');
   }
-  return {
-    url: NVIDIA_API_URL,
-    visionModel: NVIDIA_MODEL_VISION,
-    textModel: NVIDIA_MODEL_TEXT,
-    apiKey: process.env.NVIDIA_API_KEY,
-    nombre: 'nvidia',
-    apiKeyEnv: 'NVIDIA_API_KEY',
-  };
+  return key;
 }
 
-const ORDEN_PROVEEDORES: Array<'groq' | 'nvidia'> = ['groq', 'nvidia'];
-
-// Espera exponencial: 500ms, 1000ms, 2000ms (max 3 reintentos dentro del mismo proveedor)
 async function backoffRetry<T>(
   fn: () => Promise<T>,
   label: string,
-  maxReintentos = 2
+  maxReintentos = 1 // 1 reintento por modelo para no tardar mucho
 ): Promise<T> {
   let lastError: unknown;
   for (let intento = 0; intento <= maxReintentos; intento++) {
@@ -72,14 +93,13 @@ async function backoffRetry<T>(
       lastError = err;
       const msg = String(err?.message ?? err);
       const esRateLimit = /429|rate.?limit/i.test(msg);
-      const esTransient = /5\d\d|timeout|fetch failed/i.test(msg);
+      const esTransient = /5\d\d|timeout|fetch failed|respuesta vacia/i.test(msg);
       if (!esRateLimit && !esTransient) {
-        // Error logico (4xx distinto de 429, JSON malformado, etc.) → no reintentar
         throw err;
       }
       if (intento < maxReintentos) {
         const espera = 500 * Math.pow(2, intento);
-        console.warn(`[iaAdapter] ${label} reintento ${intento + 1}/${maxReintentos} tras ${espera}ms — ${msg.slice(0, 100)}`);
+        console.warn(`[iaAdapter] ${label} reintento tras ${espera}ms — ${msg.slice(0, 100)}`);
         await new Promise(r => setTimeout(r, espera));
       }
     }
@@ -87,25 +107,23 @@ async function backoffRetry<T>(
   throw lastError;
 }
 
-async function llamarProveedor(
-  prov: ProveedorConfig,
-  esVision: boolean,
+async function llamarModelo(
+  modeloKey: keyof typeof MODELOS,
   body: any
-): Promise<{ content: string; fuente: 'groq' | 'nvidia' }> {
-  if (!prov.apiKey) {
-    throw new Error(`${prov.apiKeyEnv} no esta en .env`);
-  }
-  const model = esVision ? prov.visionModel : prov.textModel;
-  // Ajustar temperature segun proveedor:
-  // - Groq acepta temperature=0 (mas determinista, evita que invente productos)
-  // - NVIDIA NIM requiere temperature > 0 en algunos modelos
-  const tempAjustada = prov.nombre === 'groq' ? 0 : 0.01;
-  const payload = { ...body, model, temperature: tempAjustada };
+): Promise<{ content: string; fuente: Fuente }> {
+  const modelo = MODELOS[modeloKey];
+  const apiKey = getApiKey();
 
-  const response = await fetch(prov.url, {
+  const payload = {
+    ...body,
+    model: modelo.id,
+    temperature: modelo.temperature,
+  };
+
+  const response = await fetch(NVIDIA_API_URL, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${prov.apiKey}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -113,7 +131,7 @@ async function llamarProveedor(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`${prov.nombre} API ${response.status}: ${errorBody.slice(0, 200)}`);
+    throw new Error(`${modeloKey} ${response.status}: ${errorBody.slice(0, 150)}`);
   }
 
   const data = await response.json() as {
@@ -122,63 +140,60 @@ async function llamarProveedor(
 
   const texto = data.choices?.[0]?.message?.content?.trim() ?? '';
   if (texto.length === 0) {
-    throw new Error(`${prov.nombre} devolvio respuesta vacia`);
+    throw new Error(`${modeloKey} devolvio respuesta vacia`);
   }
-  return { content: texto, fuente: prov.nombre };
+
+  return { content: texto, fuente: modeloKey };
 }
 
 async function cascadaLlamar(
   esVision: boolean,
   body: any
 ): Promise<{ content: string; fuente: Fuente }> {
+  const orden = esVision ? CASCADE_VISION : CASCADE_TEXT;
   let ultimoError: unknown;
-  for (const provNombre of ORDEN_PROVEEDORES) {
-    const prov = getProveedor(provNombre);
-    if (!prov.apiKey) {
-      console.warn(`[iaAdapter] ${prov.apiKeyEnv} no configurado, salto a siguiente proveedor`);
-      continue;
-    }
+
+  for (const modeloKey of orden) {
+    const label = `${modeloKey}-${esVision ? 'vision' : 'text'}`;
     try {
-      const label = `${prov.nombre}-${esVision ? 'vision' : 'text'}`;
       const resultado = await backoffRetry(
-        () => llamarProveedor(prov, esVision, body),
+        () => llamarModelo(modeloKey as keyof typeof MODELOS, body),
         label
       );
-      if (provNombre !== ORDEN_PROVEEDORES[0]) {
-        console.warn(`[iaAdapter] fallback a ${prov.nombre} funciono tras Groq fallar`);
+      if (modeloKey !== orden[0]) {
+        console.warn(`[iaAdapter] fallback a ${modeloKey} funciono tras ${orden[0]} fallar`);
       }
-      return resultado;
+      return { content: resultado.content, fuente: resultado.fuente };
     } catch (err: any) {
       ultimoError = err;
-      console.warn(`[iaAdapter] ${prov.nombre} fallo definitivamente: ${String(err?.message ?? err).slice(0, 200)}`);
+      const msg = String(err?.message ?? err).slice(0, 150);
+      console.warn(`[iaAdapter] ${modeloKey} fallo: ${msg}`);
     }
   }
   const msg = ultimoError instanceof Error ? ultimoError.message : String(ultimoError);
-  throw new Error(`Todos los proveedores de IA fallaron. Ultimo error: ${msg.slice(0, 200)}`);
+  throw new Error(`Todos los modelos fallaron. Ultimo: ${msg.slice(0, 200)}`);
 }
 
 /**
  * Transcribe una imagen (lista de utiles) a texto plano.
- * Cascada: Groq Vision → NVIDIA nemotron-omni
+ * Cascade: llama-3.2-11b-vision → 90b-vision → nemotron-omni
  */
 export async function transcribirOCR(
   imagenBase64: string,
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/png'
 ): Promise<OCRResult> {
-  const prompt = `Eres un transcriptor de listas de utiles escolares. Tu unica tarea es extraer
-el texto literal de la imagen, item por item, sin resumir, sin agregar, sin interpretar.
+  const prompt = `Eres un transcriptor de listas de utiles escolares.
 
-REGLAS ESTRICTAS:
+Tarea: extraer el texto literal de la imagen, item por item.
+
+REGLAS:
 - Una linea por item
-- Sin numeracion
-- Sin precios
-- Sin categorias
-- Si no se lee, omitelo (no inventes)
-- Si es claramente "lapiz", escribe "lapiz". NO escribas "1 lapiz" ni "lapiz Faber Castell".
+- Sin numeracion, sin precios, sin categorias
+- Si no se lee, omitelo
+- Si es claramente "lapiz", escribe "lapiz"
 
-Devuelve SOLO el texto, una linea por item, sin introduccion ni conclusion.`;
+Devuelve SOLO el texto, una linea por item. Sin explicacion.`;
 
-  // OpenAI-compatible: content es array con text + image_url
   const body = {
     messages: [
       {
@@ -203,49 +218,66 @@ Devuelve SOLO el texto, una linea por item, sin introduccion ni conclusion.`;
 
 /**
  * Interpreta texto libre del cliente y devuelve items estructurados.
- * Cascada: Groq llama-3.1-8b → NVIDIA step-3.7-flash
+ * Cascade: llama-3.1-8b → 70b → 3.3-70b → mistral-nemotron → nemotron-ultra
  */
 export async function interpretarTexto(
   textoLibre: string,
   inventarioDisponible: string[]
 ): Promise<LLMResult> {
-  const prompt = `Eres un parser de pedidos de utiles escolares.
+  const catalogoTexto = inventarioDisponible.map(n => `- ${n}`).join('\n');
 
-CATALOGO DISPONIBLE:
-${inventarioDisponible.map(n => `- ${n}`).join('\n')}
+  const prompt = `Eres un parser de pedidos. Tu trabajo es extraer items de un texto.
+
+CATALOGO (mapea al nombre EXACTO si hay match):
+${catalogoTexto}
 
 TEXTO DEL CLIENTE:
 """
 ${textoLibre}
 """
 
-Tu unica tarea: extraer cada item pedido, mapearlo al nombre EXACTO del catalogo si hay match,
-o dejarlo como texto libre si no se puede mapear.
-
 REGLAS:
-- Si el cliente dice "3 cuadernos", la cantidad es 3
-- Si no dice cantidad, asumí 1
-- Si dice "cuaderno" y en el catalogo hay "Cuaderno college 100h", usa el nombre EXACTO del catalogo
-- Si no hay match en el catalogo, devuelve el texto original
-- NO inventes productos
-- NO calcules precios
+- Si el cliente dice "3 cuadernos" → cantidad = 3
+- Si no dice cantidad → cantidad = 1
+- Si no hay match exacto en el catalogo → devuelve el texto literal
+- NUNCA inventes productos
+- NUNCA asumas productos que el cliente no menciono
 
-FORMATO DE SALIDA (uno por linea):
-cantidad|nombre_exacto_o_texto_original
+FORMATO DE SALIDA (SOLO estas lineas, una por item, NADA mas):
+cantidad|nombre
 
 Ejemplo:
 3|Cuaderno college 100h
-1|Boligrafo azul
-1|cosa rara no identificada
+2|Lapiz 2B`;
 
-Devuelve SOLO las lineas, sin explicacion.`;
-
-  // Temperature lo inyecta llamarProveedor segun el proveedor (Groq=0, NVIDIA=0.01)
   const body = {
     messages: [{ role: 'user' as const, content: prompt }],
     max_tokens: 512,
   };
 
   const { content, fuente } = await cascadaLlamar(false, body);
-  return { texto: content, fuente };
+
+  // Post-procesador defensivo: extrae solo lineas con formato "N|texto"
+  const textoLimpio = extraerLineasItem(content);
+  return { texto: textoLimpio, fuente };
+}
+
+/**
+ * Extrae solo las lineas validas "cantidad|nombre" del output.
+ * Necesario porque algunos modelos (nemotron-ultra, mistral-nemotron)
+ * pueden devolver explicaciones mezcladas con la respuesta.
+ */
+function extraerLineasItem(texto: string): string {
+  const items: string[] = [];
+  for (const linea of texto.split('\n')) {
+    const t = linea.trim();
+    if (!t) continue;
+    const match = t.match(/^(\d+)\s*\|\s*(.+)$/);
+    if (match) {
+      items.push(`${match[1]}|${match[2].trim()}`);
+    }
+  }
+  // Si no encontramos NINGUNA linea con formato, devolvemos el texto crudo
+  // (mejor eso que nada) y el orchestrator lo mandara a revision humana
+  return items.length > 0 ? items.join('\n') : texto.trim();
 }
