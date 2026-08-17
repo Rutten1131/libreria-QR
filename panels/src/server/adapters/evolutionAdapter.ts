@@ -266,7 +266,7 @@ export async function eliminarInstancia(instanceName: string): Promise<void> {
 }
 
 /* ============================================================
-   VALIDAR WEBHOOK (compatibilidad con código previo)
+   VALIDAR WEBHOOK
    ============================================================ */
 export function validarWebhookEvolution(payload: any): {
   instanceName: string;
@@ -275,23 +275,37 @@ export function validarWebhookEvolution(payload: any): {
   imagenBase64?: string;
   mimeType?: 'image/jpeg' | 'image/png' | 'image/webp';
 } | null {
+  // Ignorar eventos que no son de mensajes entrantes
   if (!payload?.data?.key?.remoteJid) return null;
-  const instance = payload.instance;
+  if (payload.data.key.fromMe) return null; // Ignorar mensajes enviados por el bot
+
+  const instance = payload.instance || payload.instanceName || '';
   const remoteJid: string = payload.data.key.remoteJid;
+  if (remoteJid.includes('@g.us')) return null; // Ignorar grupos
   const numero = remoteJid.split('@')[0];
 
-  if (payload.data.message?.conversation) {
-    return { instanceName: instance, numero, texto: payload.data.message.conversation };
+  const msg = payload.data.message || {};
+  const conversation = msg.conversation;
+  const extendedText = msg.extendedTextMessage?.text;
+  const imageMsg = msg.imageMessage || msg.ephemeralMessage?.message?.imageMessage || msg.viewOnceMessageV2?.message?.imageMessage;
+  const docMsg = msg.documentMessage || msg.ephemeralMessage?.message?.documentMessage;
+
+  const texto = conversation || extendedText || imageMsg?.caption || docMsg?.caption;
+  const imagenBase64 = imageMsg?.base64 || payload.data?.base64;
+  const rawMime = (imageMsg?.mimetype || docMsg?.mimetype || '') as string;
+  const mimeType = rawMime.includes('png') ? 'image/png' : 'image/jpeg';
+
+  if (!texto && !imagenBase64) {
+    return null;
   }
-  if (payload.data.message?.imageMessage) {
-    return {
-      instanceName: instance,
-      numero,
-      imagenBase64: payload.data.message.imageMessage.base64 ?? '',
-      mimeType: 'image/jpeg',
-    };
-  }
-  return null;
+
+  return {
+    instanceName: instance,
+    numero,
+    texto: texto ? String(texto).trim() : undefined,
+    imagenBase64: imagenBase64 ? String(imagenBase64) : undefined,
+    mimeType,
+  };
 }
 
 /* ============================================================
