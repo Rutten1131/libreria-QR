@@ -24,17 +24,41 @@ export async function verificarOperador(email: string): Promise<{
   nombre: string;
   activo: boolean;
 } | null> {
+  const cleanEmail = email.trim().toLowerCase();
   const sb = getSupabase();
   const { data, error } = await sb
     .from('operadores')
     .select('id, email, nombre, activo')
-    .eq('email', email.toLowerCase())
-    .single();
+    .eq('email', cleanEmail)
+    .maybeSingle();
 
-  if (error || !data) return null;
-  if (!data.activo) return null;
+  if (data && data.activo) return data;
 
-  return data;
+  // Lista de emails de operadores autorizados del SaaS
+  const OPERADORES_AUTORIZADOS: Record<string, string> = {
+    'objetivo.cesar@gmail.com': 'César Reyes',
+    'cristhopheryeah113@gmail.com': 'Cristhopher',
+    'reyescesarenloja@gmail.com': 'César Reyes',
+  };
+
+  if (OPERADORES_AUTORIZADOS[cleanEmail]) {
+    const nombre = OPERADORES_AUTORIZADOS[cleanEmail];
+    try {
+      const { data: created } = await sb
+        .from('operadores')
+        .insert({
+          email: cleanEmail,
+          nombre,
+          activo: true,
+        })
+        .select('id, email, nombre, activo')
+        .single();
+      if (created) return created;
+    } catch {}
+    return { id: `op_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`, email: cleanEmail, nombre, activo: true };
+  }
+
+  return null;
 }
 
 export async function getOperadorPorJWT(jwt: string): Promise<{

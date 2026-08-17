@@ -23,18 +23,23 @@ function instanceNameFromId(tenantId: string): string {
 
 export async function conectarWhatsapp(req: AuthedRequest, res: Response) {
   const { id } = req.params;
-  const { numero_whatsapp } = req.body ?? {};
-
-  if (!numero_whatsapp || typeof numero_whatsapp !== 'string') {
-    return res.status(400).json({ error: 'numero_whatsapp requerido' });
-  }
-
   const sb = getSupabase();
 
-  // Verificar que el tenant existe
-  const { data: tenant } = await sb.from('tenants').select('id').eq('id', id).single();
-  if (!tenant) return res.status(404).json({ error: 'tenant no existe' });
+  // Verificar que el tenant existe o crearlo si viene del panel
+  let { data: tenant } = await sb.from('tenants').select('id, telefono').eq('id', id).maybeSingle();
+  if (!tenant) {
+    const cleanNombre = id.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+    try {
+      const { data: created } = await sb
+        .from('tenants')
+        .insert({ id, nombre: cleanNombre })
+        .select('id, telefono')
+        .single();
+      tenant = created;
+    } catch {}
+  }
 
+  const numero_whatsapp = req.body?.numero_whatsapp || tenant?.telefono || `+593_${id}`;
   const instanceName = instanceNameFromId(id);
 
   try {
@@ -120,7 +125,7 @@ export async function whatsappStatus(req: AuthedRequest, res: Response) {
 
   const { data: tw } = await sb
     .from('tenant_whatsapp')
-    .select('evolution_instance_name')
+    .select('evolution_instance_name, evolution_state, evolution_qr, numero_whatsapp')
     .eq('tenant_id', id)
     .maybeSingle();
 
@@ -129,7 +134,48 @@ export async function whatsappStatus(req: AuthedRequest, res: Response) {
   }
 
   try {
-    const estado = await consultarEstado(tw.evolution_instance_name);
+    const { consultarDetalleInstancia } = await import('../adapters/evolutionAdapter');
+    const detalle = await consultarDetalleInstancia(tw.evolution_instance_name);
+    const estado = detalle.estado;
+    let currentQR = tw.evolution_qr;
+    let numeroReal = tw.numero_whatsapp;
+
+    // Si Evolution detectó el número real escaneado de WhatsApp, actualizarlo
+    if (detalle.phoneNumber && detalle.phoneNumber.length >= 8) {
+      numeroReal = detalle.phoneNumber;
+      try {
+        await sb
+          .from('tenant_whatsapp')
+          .update({
+            numero_whatsapp: numeroReal,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('tenant_id', id);
+
+        await sb
+          .from('tenants')
+          .update({ telefono: numeroReal })
+          .eq('id', id);
+      } catch {}
+    }
+
+    // Si no está conectado, mantener o refrescar el QR fresco
+    if (estado !== 'conectado') {
+      try {
+        const qrResult = await obtenerQR(tw.evolution_instance_name);
+        if (qrResult?.base64) {
+          currentQR = qrResult.base64;
+          await sb
+            .from('tenant_whatsapp')
+            .update({
+              evolution_qr: currentQR,
+              evolution_qr_expires_at: qrResult.expiresAt.toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('tenant_id', id);
+        }
+      } catch {}
+    }
 
     await sb
       .from('tenant_whatsapp')
@@ -139,7 +185,14 @@ export async function whatsappStatus(req: AuthedRequest, res: Response) {
       })
       .eq('tenant_id', id);
 
-    return res.json({ whatsapp: { evolution_state: estado } });
+    return res.json({
+      whatsapp: {
+        evolution_state: estado,
+        evolution_instance_name: tw.evolution_instance_name,
+        numero_whatsapp: numeroReal,
+        evolution_qr: currentQR,
+      },
+    });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }

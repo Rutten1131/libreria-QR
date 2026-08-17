@@ -12,9 +12,12 @@
 // el panel pueda renderizar visualmente. Esto permite que César
 // pueda revisar el admin completo sin tener Evolution arriba.
 
-const EVOLUTION_BASE_URL = process.env.EVOLUTION_BASE_URL ?? 'http://localhost:8080';
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY ?? '';
-const WEBHOOK_BASE_URL = process.env.WEBHOOK_BASE_URL ?? '';
+const EVOLUTION_BASE_URL = process.env.EVOLUTION_BASE_URL || process.env.EVOLUTION_API_URL || 'http://178.238.238.158:8080';
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || '42a447c1-3d74-4b52-9571-042c174f7621';
+const WEBHOOK_BASE_URL = process.env.WEBHOOK_BASE_URL || 'http://localhost:3001';
+
+// Detecta placeholder no configurado (ej: "<SET>")
+const PLACEHOLDER = (v: string) => !v || v === '<SET>' || v.includes('<SET>');
 
 const TIMEOUT_MS = 15000;
 const MAX_RETRIES = 2;
@@ -44,7 +47,7 @@ function headers() {
 }
 
 function stubActivo(): boolean {
-  return !EVOLUTION_API_KEY;
+  return PLACEHOLDER(EVOLUTION_API_KEY) || PLACEHOLDER(EVOLUTION_BASE_URL);
 }
 
 /* ============================================================
@@ -108,19 +111,26 @@ export async function configurarWebhook(
     'QRCODE_UPDATED',
   ];
 
-  const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/webhook/set/${instanceName}`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({
-      url: webhookUrl,
-      webhook_by_events: false,
-      webhook_base64: true,
-      events: eventos,
-    }),
-  });
+  try {
+    const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/webhook/set/${instanceName}`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({
+        webhook: {
+          enabled: true,
+          url: webhookUrl,
+          byEvents: false,
+          base64: true,
+          events: eventos,
+        },
+      }),
+    });
 
-  if (!res.ok) {
-    throw new Error(`Evolution webhook ${res.status}: ${await res.text()}`);
+    if (!res.ok) {
+      console.warn(`[Evolution Webhook ${res.status}]`, await res.text());
+    }
+  } catch (e: any) {
+    console.warn(`[Evolution Webhook Warning]`, e.message);
   }
 }
 
@@ -138,14 +148,16 @@ export async function obtenerQR(instanceName: string): Promise<ResultadoQR | nul
     };
   }
 
-  const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/instance/connect/${instanceName}`);
+  const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/instance/connect/${instanceName}`, {
+    headers: headers(),
+  });
   if (!res.ok) {
     if (res.status === 404) return null; // instancia no existe
     throw new Error(`Evolution qr ${res.status}: ${await res.text()}`);
   }
 
   const data: any = await res.json();
-  const base64 = data?.base64 ?? data?.qrcode ?? null;
+  const base64 = data?.base64 ?? data?.qrcode?.base64 ?? data?.qrcode ?? null;
   if (!base64) return null;
 
   return {
@@ -158,16 +170,60 @@ export async function obtenerQR(instanceName: string): Promise<ResultadoQR | nul
    D. CONSULTAR ESTADO
    ============================================================ */
 export async function consultarEstado(instanceName: string): Promise<EstadoEvolution> {
-  if (stubActivo()) return 'esperando_qr';
+  const detalle = await consultarDetalleInstancia(instanceName);
+  return detalle.estado;
+}
 
-  const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/instance/connectionState/${instanceName}`);
-  if (!res.ok) {
-    if (res.status === 404) return 'desconocido';
-    throw new Error(`Evolution state ${res.status}: ${await res.text()}`);
+export async function consultarDetalleInstancia(instanceName: string): Promise<{
+  estado: EstadoEvolution;
+  phoneNumber?: string;
+}> {
+  if (stubActivo()) return { estado: 'esperando_qr' };
+
+  try {
+    let ownerJid = '';
+    let state = '';
+
+    // 1. Consultar fetchInstances para obtener metadata completa (incluye ownerJid)
+    const resFetch = await fetchConRetry(`${EVOLUTION_BASE_URL}/instance/fetchInstances`, {
+      headers: headers(),
+    });
+
+    if (resFetch.ok) {
+      const list: any = await resFetch.json();
+      if (Array.isArray(list)) {
+        const inst = list.find((i: any) => i.name === instanceName || i.instanceName === instanceName);
+        if (inst) {
+          state = inst.connectionStatus || inst.state || '';
+          ownerJid = inst.ownerJid || inst.owner || '';
+        }
+      }
+    }
+
+    // 2. Si no obtuvimos estado, verificar connectionState
+    if (!state) {
+      const resState = await fetchConRetry(`${EVOLUTION_BASE_URL}/instance/connectionState/${instanceName}`, {
+        headers: headers(),
+      });
+      if (resState.ok) {
+        const stateData: any = await resState.json();
+        state = stateData?.instance?.state || stateData?.state || '';
+        if (!ownerJid) {
+          ownerJid = stateData?.instance?.ownerJid || stateData?.instance?.owner || '';
+        }
+      }
+    }
+
+    const estado = mapearEstado(state);
+    const phoneNumber = ownerJid
+      ? String(ownerJid).split('@')[0].split(':')[0].replace(/[^0-9]/g, '')
+      : undefined;
+
+    return { estado, phoneNumber };
+  } catch (e: any) {
+    console.warn(`[Evolution Error Detalle ${instanceName}]`, e.message);
+    return { estado: 'desconocido' };
   }
-
-  const data: any = await res.json();
-  return mapearEstado(data?.instance?.state);
 }
 
 /* ============================================================

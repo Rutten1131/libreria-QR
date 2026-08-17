@@ -1,28 +1,23 @@
+'use client';
+
+import { usePathname } from 'next/navigation';
 import Header from '@/components/Header';
 import BottomNav from '@/components/BottomNav';
 
 export default function PanelLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || '';
+  const isLoginPage = pathname.includes('/login');
+
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="lqr-shell">
       <Header />
-      <div className="lqr-shell__content">{children}</div>
+      {/* padding-top compensa el header fixed */}
+      <div className="lqr-shell__content lqr-page">{children}</div>
       <BottomNav />
-
-      <style>{`
-        .lqr-shell {
-          position: relative;
-          min-height: 100vh;
-        }
-        .lqr-shell__content {
-          position: relative;
-          z-index: 1;
-        }
-        @media (max-width: 720px) {
-          .lqr-shell__content {
-            padding-bottom: 96px;
-          }
-        }
-      `}</style>
     </div>
   );
 }

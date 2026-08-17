@@ -67,11 +67,69 @@ app.post('/api/admin/inventario/cargar', async (req, res) => {
   }
 });
 
-// POST /api/whatsapp/webhook — webhook unificado de Evolution API
-// El tenant se discrimina por payload.instance → tenant_whatsapp en BD
-app.post('/api/whatsapp/webhook', async (req, res) => {
-  const { webhookWhatsapp } = await import('./api/whatsappWebhook');
-  return webhookWhatsapp(req, res);
+// ============================================================
+// PANEL TENANT — INVENTARIO
+// ============================================================
+
+// GET /api/tenants/:tenantId/productos — listar productos del tenant
+app.get('/api/tenants/:tenantId/productos', async (req, res) => {
+  try {
+    const sb = getSupabase();
+    const { tenantId } = req.params;
+    const { data, error } = await sb
+      .from('productos')
+      .select('id, nombre, familia, precio, stock_cantidad, disponible')
+      .eq('tenant_id', tenantId)
+      .order('nombre', { ascending: true });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(
+      (data || []).map((p: any) => ({
+        id: p.id,
+        nombre: p.nombre,
+        familia: p.familia || 'general',
+        precio: Number(p.precio),
+        disponible: p.disponible ?? (p.stock_cantidad > 0),
+      }))
+    );
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/tenants/:tenantId/inventario/importar — importar desde Excel (JSON normalizado)
+app.post('/api/tenants/:tenantId/inventario/importar', async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+    const { items } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items (array) es requerido' });
+    }
+    const resultado = await cargarInventario({ tenant_id: tenantId, items });
+    return res.json(resultado);
+  } catch (e: any) {
+    return res.status(400).json({ error: e.message });
+  }
+});
+
+// POST /api/tenants/:tenantId/productos/:id/toggle — alternar disponible/agotado
+app.post('/api/tenants/:tenantId/productos/:id/toggle', async (req, res) => {
+  try {
+    const sb = getSupabase();
+    const { tenantId, id } = req.params;
+    const { disponible } = req.body;
+    const stock = disponible ? 10 : 0;
+    const { data, error } = await sb
+      .from('productos')
+      .update({ stock_cantidad: stock })
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .select('id, disponible, stock_cantidad')
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true, producto: data });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
 });
 
 // ============================================================
@@ -92,13 +150,50 @@ app.get('/api/admin/tenants/:id', requireOperador, verTenant);
 app.get('/api/admin/tenants/:id/whatsapp', requireOperador, verWhatsappTenant);
 
 // ============================================================
-// WHATSAPP CONNECT (operador autenticado)
+// WHATSAPP CONNECT (Superadmin y Panel Tenant)
 // ============================================================
 import { conectarWhatsapp, whatsappQR, whatsappStatus, desconectarWhatsapp } from './api/whatsappConnect';
+
+// Rutas de administración (operador)
 app.post('/api/admin/tenants/:id/whatsapp/conectar', requireOperador, conectarWhatsapp);
 app.get('/api/admin/tenants/:id/whatsapp/qr', requireOperador, whatsappQR);
 app.get('/api/admin/tenants/:id/whatsapp/status', requireOperador, whatsappStatus);
 app.delete('/api/admin/tenants/:id/whatsapp', requireOperador, desconectarWhatsapp);
+
+// Rutas directas para el panel de papelería (tenant)
+app.get('/api/tenants/:id/whatsapp', verWhatsappTenant as any);
+app.post('/api/tenants/:id/whatsapp/conectar', conectarWhatsapp as any);
+app.get('/api/tenants/:id/whatsapp/qr', whatsappQR as any);
+app.get('/api/tenants/:id/whatsapp/status', whatsappStatus as any);
+app.delete('/api/tenants/:id/whatsapp', desconectarWhatsapp as any);
+
+// ============================================================
+// PUBLIC TENANT LOOKUP (para login/acceso del panel de papelería)
+// ============================================================
+import { getSupabase } from './adapters/supabaseClient';
+
+app.get('/api/public/tenants/:id', async (req, res) => {
+  try {
+    const sb = getSupabase();
+    const { id } = req.params;
+    const { data, error } = await sb
+      .from('tenants')
+      .select('id, nombre, telefono, direccion')
+      .or(`id.eq.${id},telefono.eq.${id}`)
+      .maybeSingle();
+    if (error || !data) return res.status(404).json({ error: 'Librería no encontrada' });
+    return res.json({ tenant: data });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/whatsapp/webhook — webhook unificado de Evolution API
+// El tenant se discrimina por payload.instance → tenant_whatsapp en BD
+app.post('/api/whatsapp/webhook', async (req, res) => {
+  const { webhookWhatsapp } = await import('./api/whatsappWebhook');
+  return webhookWhatsapp(req, res);
+});
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -1,24 +1,90 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
-/**
- * Tenant demo. En produccion este id viene del link firmado
- * (PRD A.6: "acceso via enlace enviado por WhatsApp, sin password").
- */
-const DEMO_TENANT_ID = 'libreria_el_sol';
 const STORAGE_KEY = 'libreriasqr-tenant';
+const STORAGE_NAME_KEY = 'libreriasqr-tenant-nombre';
+
+export interface TenantInfo {
+  id: string;
+  nombre: string;
+}
+
+export function getStoredTenant(): TenantInfo | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const id = localStorage.getItem(STORAGE_KEY);
+    const nombre = localStorage.getItem(STORAGE_NAME_KEY) || id || '';
+    if (id) return { id, nombre };
+  } catch {}
+  return null;
+}
+
+export function setStoredTenant(id: string, nombre?: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY, id);
+    if (nombre) {
+      localStorage.setItem(STORAGE_NAME_KEY, nombre);
+    } else {
+      localStorage.setItem(STORAGE_NAME_KEY, id);
+    }
+  } catch {}
+}
+
+export function clearStoredTenant(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_NAME_KEY);
+  } catch {}
+}
 
 export function useTenant(): string {
-  const [tenant] = useState<string>(DEMO_TENANT_ID);
+  const [tenant, setTenant] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(STORAGE_KEY) || '';
+    }
+    return '';
+  });
+
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        // Solo lectura — no exponemos setter todavia porque el PRD
-        // dice que el tenant se setea una sola vez por el QR.
-      }
-    } catch {}
-  }, []);
+    const stored = getStoredTenant();
+    if (stored?.id && stored.id !== tenant) {
+      setTenant(stored.id);
+    }
+  }, [tenant]);
+
   return tenant;
+}
+
+export function useTenantContext() {
+  const [tenant, setTenantState] = useState<TenantInfo | null>(() => getStoredTenant());
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const stored = getStoredTenant();
+    if (stored?.id !== tenant?.id) {
+      setTenantState(stored);
+    }
+  }, [tenant]);
+
+  const login = useCallback((id: string, nombre?: string) => {
+    setStoredTenant(id, nombre);
+    setTenantState({ id, nombre: nombre || id });
+  }, []);
+
+  const logout = useCallback(() => {
+    clearStoredTenant();
+    setTenantState(null);
+  }, []);
+
+  return {
+    tenant,
+    tenantId: tenant?.id || '',
+    tenantNombre: tenant?.nombre || '',
+    loading,
+    login,
+    logout,
+  };
 }

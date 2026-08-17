@@ -3,35 +3,16 @@
 import { useMemo } from 'react';
 
 /**
- * Avatar con iniciales + gradiente determinístico.
- * Sin dependencias externas. Extrae 1-2 letras del nombre.
- * El gradiente se elige por hash del nombre — mismo cliente = mismo color.
+ * Avatar monochromático estilo visionOS.
+ * Fondo: glass translúcido. Texto: blanco. Sin gradientes de color saturado.
  */
 
-const GRADIENTES = [
-  ['#22c55e', '#0ea5e9'],   // emerald → sky
-  ['#f59e0b', '#ef4444'],   // amber → red
-  ['#8b5cf6', '#ec4899'],   // violet → pink
-  ['#06b6d4', '#3b82f6'],   // cyan → blue
-  ['#10b981', '#6366f1'],   // emerald → indigo
-  ['#f97316', '#a855f7'],   // orange → purple
-  ['#14b8a6', '#0ea5e9'],   // teal → sky
-  ['#eab308', '#f43f5e'],   // yellow → rose
-];
-
-function extraerIniciales(nombre: string): string {
+function extraerIniciales(nombre?: string | null): string {
+  if (!nombre || typeof nombre !== 'string') return '?';
   const partes = nombre.trim().split(/\s+/).filter(Boolean);
   if (partes.length === 0) return '?';
   if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
-}
-
-function hash(nombre: string): number {
-  let h = 0;
-  for (let i = 0; i < nombre.length; i++) {
-    h = (h * 31 + nombre.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
 }
 
 export default function Avatar({
@@ -39,15 +20,11 @@ export default function Avatar({
   size = 40,
   online,
 }: {
-  nombre: string;
+  nombre?: string | null;
   size?: number;
   online?: boolean;
 }) {
   const iniciales = useMemo(() => extraerIniciales(nombre), [nombre]);
-  const [from, to] = useMemo(
-    () => GRADIENTES[hash(nombre) % GRADIENTES.length],
-    [nombre]
-  );
 
   return (
     <span
@@ -55,10 +32,9 @@ export default function Avatar({
       style={{
         width: size,
         height: size,
-        background: `linear-gradient(135deg, ${from}, ${to})`,
         fontSize: Math.round(size * 0.36),
       }}
-      aria-label={nombre}
+      aria-label={nombre || undefined}
     >
       <span className="lqr-avatar__text">{iniciales}</span>
       {online && <span className="lqr-avatar__online" aria-hidden />}
@@ -70,24 +46,27 @@ export default function Avatar({
           align-items: center;
           justify-content: center;
           border-radius: 50%;
-          color: #fff;
-          font-weight: 600;
+          background: rgba(255, 255, 255, 0.10);
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          color: rgba(255, 255, 255, 0.90);
+          font-weight: 700;
           letter-spacing: 0;
           flex-shrink: 0;
-          box-shadow: 0 0 0 2px var(--bg-base);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
         }
         .lqr-avatar__text {
           font-feature-settings: 'ss01';
         }
         .lqr-avatar__online {
           position: absolute;
-          right: -1px;
-          bottom: -1px;
-          width: 12px;
-          height: 12px;
+          right: 0px;
+          bottom: 0px;
+          width: 10px;
+          height: 10px;
           border-radius: 50%;
-          background: var(--accent);
-          border: 2px solid var(--bg-base);
+          background: rgba(255, 255, 255, 0.80);
+          border: 2px solid rgba(0,0,0,0.3);
         }
       `}</style>
     </span>

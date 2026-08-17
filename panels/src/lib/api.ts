@@ -25,6 +25,32 @@ async function fetchConTimeout(url: string, opts: RequestInit = {}) {
 }
 
 /* ============================================================
+   TENANT LOOKUP PRIVADO (para acceso del panel)
+   ============================================================ */
+
+export interface PublicTenant {
+  id: string;
+  nombre: string;
+  telefono?: string;
+  direccion?: string;
+}
+
+export async function buscarTenantPublico(idOrPhone: string): Promise<PublicTenant | null> {
+  const clean = idOrPhone.trim().toLowerCase();
+  if (API_URL) {
+    try {
+      const res = await fetchConTimeout(`${API_URL}/api/public/tenants/${encodeURIComponent(clean)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.tenant) return data.tenant;
+      }
+    } catch {}
+  }
+  // En local/demo sin backend conectado: genera sesión para el id ingresado
+  return { id: clean, nombre: clean.replace(/_/g, ' ').toUpperCase() };
+}
+
+/* ============================================================
    PEDIDOS
    ============================================================ */
 
@@ -92,7 +118,28 @@ export async function listarPedidos(tenantId: string): Promise<Pedido[]> {
   if (API_URL) {
     try {
       const res = await fetchConTimeout(`${API_URL}/api/pedidos?tenantId=${tenantId}`);
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const raw = await res.json();
+        if (Array.isArray(raw)) {
+          return raw.map((p: any) => ({
+            id: p.id,
+            tenant_id: p.tenant_id || p.tenantId || tenantId,
+            cliente_nombre: p.cliente_nombre || p.clienteNombre || 'Cliente WhatsApp',
+            cliente_telefono: p.cliente_telefono || p.clienteTelefono || '',
+            estado: p.estado === 'confirmado' ? 'confirmado_pagado' : (p.estado || 'necesita_revision'),
+            items: (p.items || []).map((it: any) => ({
+              nombre: it.nombre || '',
+              cantidad: it.cantidad || 1,
+              precio_unitario: it.precio_unitario || it.precioUnitario || 0,
+              subtotal: (it.cantidad || 1) * (it.precio_unitario || it.precioUnitario || 0),
+            })),
+            total: typeof p.total === 'number' ? p.total : Number(p.total) || 0,
+            created_at: p.created_at || p.fechaCreacion || new Date().toISOString(),
+            updated_at: p.updated_at || p.fechaActualizacion || new Date().toISOString(),
+            accion_pendiente: p.accion_pendiente || p.accionPendiente || (p.estado === 'necesita_revision' ? 'Verificar pedido' : undefined),
+          }));
+        }
+      }
     } catch {}
   }
   return PEDIDOS_MOCK;
@@ -121,10 +168,31 @@ export async function listarProductos(tenantId: string): Promise<Producto[]> {
   if (API_URL) {
     try {
       const res = await fetchConTimeout(`${API_URL}/api/tenants/${tenantId}/productos`);
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      }
+      return [];
+    } catch {
+      // Si el backend no responde, solo devolvemos vacío para no mezclar datos de otras librerías
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function toggleProductoStock(tenantId: string, productoId: string, disponible: boolean): Promise<boolean> {
+  if (API_URL) {
+    try {
+      const res = await fetchConTimeout(`${API_URL}/api/tenants/${tenantId}/productos/${productoId}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disponible }),
+      });
+      return res.ok;
     } catch {}
   }
-  return PRODUCTOS_MOCK;
+  return true;
 }
 
 /* ============================================================

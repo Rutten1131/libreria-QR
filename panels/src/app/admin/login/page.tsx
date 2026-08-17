@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { adminApi, setToken } from '@/lib/adminApi';
+import { adminApi, setToken, getToken } from '@/lib/adminApi';
 import Link from 'next/link';
 
 export default function AdminLoginPage() {
@@ -14,6 +14,12 @@ export default function AdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (getToken()) {
+      router.replace('/admin');
+    }
+  }, [router]);
 
   const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,15 +103,15 @@ export default function AdminLoginPage() {
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={6}
+                maxLength={20}
                 placeholder="123456"
                 value={token}
-                onChange={(e) => setTokenInput(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setTokenInput(e.target.value)}
                 required
                 className="lqr-auth__input"
               />
             </label>
-            <button type="submit" disabled={loading || token.length !== 6} className="lqr-auth__cta">
+            <button type="submit" disabled={loading || token.length < 1} className="lqr-auth__cta">
               {loading ? 'Verificando…' : 'Entrar'}
             </button>
             <button

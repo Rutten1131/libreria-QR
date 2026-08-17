@@ -1,6 +1,33 @@
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Testing & build outputs
 dist/
-.env
+build/
 .next/
 out/
+
+# Environment files
+.env
+.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+panels/.env.local
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# System files
+.DS_Store
+Thumbs.db
+install_skills.js
+.agent/temp_skills/
