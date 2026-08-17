@@ -83,16 +83,38 @@ export async function cargarInventario(input: CargaInput): Promise<CargaResultad
     }
   }
 
-  // UPSERT productos
+  // Guardar productos en la tabla 'productos'
   let cargados = 0;
-  if (rowsValidos.length > 0) {
-    const { data: upserted, error: eUp } = await sb
-      .from('productos')
-      .upsert(rowsValidos, { onConflict: 'id', ignoreDuplicates: false })
-      .select('id, nombre');
+  for (const r of rowsValidos) {
+    try {
+      const { data: existing } = await sb
+        .from('productos')
+        .select('id')
+        .eq('tenant_id', tenant_id)
+        .eq('nombre', r.nombre)
+        .maybeSingle();
 
-    if (eUp) throw new Error(`error upsert productos: ${eUp.message}`);
-    cargados = upserted?.length ?? 0;
+      if (existing?.id) {
+        const { error: errUp } = await sb
+          .from('productos')
+          .update({
+            familia: r.familia,
+            precio: r.precio,
+            stock_cantidad: r.stock_cantidad,
+          })
+          .eq('id', existing.id);
+        if (!errUp) cargados++;
+        else rechazos.push({ item: { nombre: r.nombre, familia: r.familia, precio: r.precio, stock: r.stock_cantidad }, errores: [errUp.message] });
+      } else {
+        const { error: errIn } = await sb
+          .from('productos')
+          .insert(r);
+        if (!errIn) cargados++;
+        else rechazos.push({ item: { nombre: r.nombre, familia: r.familia, precio: r.precio, stock: r.stock_cantidad }, errores: [errIn.message] });
+      }
+    } catch (e: any) {
+      rechazos.push({ item: { nombre: r.nombre, familia: r.familia, precio: r.precio, stock: r.stock_cantidad }, errores: [e.message] });
+    }
   }
 
   // Registrar auditoría

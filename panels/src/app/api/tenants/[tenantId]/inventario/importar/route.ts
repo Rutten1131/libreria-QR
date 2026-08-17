@@ -1,60 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cargarInventario } from '@/server/services/inventarioService';
 import { getSupabase } from '@/server/adapters/supabaseClient';
+
+async function resolveTenantId(idOrPhone: string): Promise<string> {
+  const clean = idOrPhone.trim();
+  const sb = getSupabase();
+  const { data } = await sb
+    .from('tenants')
+    .select('id')
+    .or(`id.eq.${clean},telefono.eq.${clean}`)
+    .maybeSingle();
+
+  if (data?.id) return data.id;
+
+  // Si no existe, crearlo para evitar error
+  const { data: newTenant } = await sb
+    .from('tenants')
+    .insert({
+      id: clean,
+      nombre: clean.replace(/_/g, ' '),
+      telefono: '593900000000',
+      activo: true,
+    })
+    .select('id')
+    .single();
+
+  return newTenant?.id || clean;
+}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { tenantId: string } }
 ) {
-  const tenantId = params.tenantId;
-  const body = await req.json();
-  const items = body.items as Array<{
-    nombre: string;
-    familia?: string;
-    precio?: number;
-    stock?: number;
-  }>;
+  try {
+    const rawTenantId = params.tenantId;
+    const tenantId = await resolveTenantId(rawTenantId);
+    const body = await req.json();
 
-  if (!items || !Array.isArray(items)) {
-    return NextResponse.json({ error: 'Array de items es requerido' }, { status: 400 });
-  }
+    const items = (body.items || []).map((it: any) => ({
+      nombre: String(it.nombre || '').trim(),
+      familia: String(it.familia || 'general').trim().toLowerCase(),
+      precio: typeof it.precio === 'number' ? it.precio : parseFloat(String(it.precio || '0').replace(',', '.')),
+      stock: typeof it.stock === 'number' ? it.stock : (typeof it.stock_cantidad === 'number' ? it.stock_cantidad : 100),
+      variantes: it.variantes,
+    }));
 
-  const sb = getSupabase();
-  let cargados = 0;
-  let rechazados = 0;
-  const detalle_rechazos: any[] = [];
-
-  const rows = items.map((it) => ({
-    tenant_id: tenantId,
-    nombre: it.nombre.trim(),
-    familia: (it.familia || 'general').trim().toLowerCase(),
-    precio: typeof it.precio === 'number' ? it.precio : 0,
-    disponible: true,
-    updated_at: new Date().toISOString(),
-  }));
-
-  const { data, error } = await sb
-    .from('inventario_items')
-    .upsert(rows, { onConflict: 'tenant_id, nombre' })
-    .select();
-
-  if (error) {
-    // Si falla el upsert conjunto, intentar individualmente
-    for (const r of rows) {
-      const { error: errInd } = await sb.from('inventario_items').upsert(r, { onConflict: 'tenant_id, nombre' });
-      if (errInd) {
-        rechazados++;
-        detalle_rechazos.push({ item: r, errores: [errInd.message] });
-      } else {
-        cargados++;
-      }
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: 'Array de items es requerido' }, { status: 400 });
     }
-  } else {
-    cargados = data?.length || rows.length;
-  }
 
-  return NextResponse.json({
-    cargados,
-    rechazados,
-    detalle_rechazos,
-  });
+    const resultado = await cargarInventario({
+      tenant_id: tenantId,
+      items,
+    });
+
+    return NextResponse.json(resultado);
+  } catch (e: any) {
+    console.error('[API Importar Inventario Error]', e.message);
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
 }

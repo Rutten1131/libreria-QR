@@ -1,46 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
 
+async function resolveTenantId(idOrPhone: string): Promise<string> {
+  const clean = idOrPhone.trim();
+  const sb = getSupabase();
+  const { data } = await sb
+    .from('tenants')
+    .select('id')
+    .or(`id.eq.${clean},telefono.eq.${clean}`)
+    .maybeSingle();
+
+  return data?.id || clean;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { tenantId: string } }
 ) {
-  const tenantId = params.tenantId;
-  const sb = getSupabase();
+  try {
+    const rawId = params.tenantId;
+    const sb = getSupabase();
+    const tenantId = await resolveTenantId(rawId);
 
-  const { data, error } = await sb
-    .from('inventario_items')
-    .select('id, nombre, familia, precio, disponible, updated_at')
-    .eq('tenant_id', tenantId)
-    .order('nombre');
+    const { data, error } = await sb
+      .from('productos')
+      .select('id, tenant_id, nombre, familia, precio, stock_cantidad')
+      .or(`tenant_id.eq.${tenantId},tenant_id.eq.${rawId}`)
+      .order('nombre');
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error('[API inventario error]', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const productos = (data || []).map((r: any) => ({
+      id: r.id,
+      tenantId: r.tenant_id,
+      nombre: r.nombre,
+      familia: r.familia || 'general',
+      precio: Number(r.precio || 0),
+      stock_cantidad: Number(r.stock_cantidad ?? 0),
+      disponible: (Number(r.stock_cantidad ?? 0)) > 0,
+    }));
+
+    return NextResponse.json(productos);
+  } catch (e: any) {
+    console.error('[API inventario crash]', e.message);
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  return NextResponse.json(data || []);
 }
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { tenantId: string } }
 ) {
-  const tenantId = params.tenantId;
-  const body = await req.json();
-  const { id, disponible } = body;
+  try {
+    const rawId = params.tenantId;
+    const body = await req.json();
+    const { id, disponible } = body;
 
-  const sb = getSupabase();
-  const { data, error } = await sb
-    .from('inventario_items')
-    .update({ disponible, updated_at: new Date().toISOString() })
-    .eq('tenant_id', tenantId)
-    .eq('id', id)
-    .select()
-    .single();
+    const sb = getSupabase();
+    const tenantId = await resolveTenantId(rawId);
+    const nuevoStock = disponible ? 100 : 0;
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const { data, error } = await sb
+      .from('productos')
+      .update({ stock_cantidad: nuevoStock })
+      .or(`tenant_id.eq.${tenantId},tenant_id.eq.${rawId}`)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      id: data.id,
+      nombre: data.nombre,
+      familia: data.familia,
+      precio: Number(data.precio),
+      disponible: data.stock_cantidad > 0,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  return NextResponse.json(data);
 }

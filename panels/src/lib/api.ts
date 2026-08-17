@@ -1,17 +1,7 @@
 import type { Pedido, Producto, Comanda } from './types';
 
-/**
- * Cliente API del frontend.
- *
- * - Si la variable NEXT_PUBLIC_API_URL esta definida y responde,
- *   usa el backend real.
- * - Si no, devuelve mocks (modo demo) para que el panel siempre
- *   renderice algo para revisar visualmente.
- */
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-
-const TIMEOUT_MS = 5000;
+const TIMEOUT_MS = 10000;
 
 async function fetchConTimeout(url: string, opts: RequestInit = {}) {
   const controller = new AbortController();
@@ -25,7 +15,7 @@ async function fetchConTimeout(url: string, opts: RequestInit = {}) {
 }
 
 /* ============================================================
-   TENANT LOOKUP PRIVADO (para acceso del panel)
+   TENANT LOOKUP PRIVADO
    ============================================================ */
 
 export interface PublicTenant {
@@ -37,195 +27,123 @@ export interface PublicTenant {
 
 export async function buscarTenantPublico(idOrPhone: string): Promise<PublicTenant | null> {
   const clean = idOrPhone.trim().toLowerCase();
-  if (API_URL) {
-    try {
-      const res = await fetchConTimeout(`${API_URL}/api/public/tenants/${encodeURIComponent(clean)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.tenant) return data.tenant;
-      }
-    } catch {}
-  }
-  // En local/demo sin backend conectado: genera sesión para el id ingresado
+  try {
+    const res = await fetchConTimeout(`${API_URL}/api/public/tenants/${encodeURIComponent(clean)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.tenant) return data.tenant;
+    }
+  } catch {}
+
   return { id: clean, nombre: clean.replace(/_/g, ' ').toUpperCase() };
 }
 
 /* ============================================================
-   PEDIDOS
+   PEDIDOS (REAL DATABASE)
    ============================================================ */
 
-const PEDIDOS_MOCK: Pedido[] = [
-  {
-    id: 'ped_001',
-    tenant_id: 'libreria_el_sol',
-    cliente_nombre: 'María González',
-    cliente_telefono: '+593999123456',
-    estado: 'necesita_revision',
-    items: [
-      { nombre: 'Cuaderno college 100h', cantidad: 3, precio_unitario: 2.5, subtotal: 7.5 },
-      { nombre: 'Lápiz 2B', cantidad: 2, precio_unitario: 0.5, subtotal: 1.0 },
-    ],
-    total: 8.5,
-    created_at: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    updated_at: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
-    accion_pendiente: 'Confirmar variante',
-  },
-  {
-    id: 'ped_002',
-    tenant_id: 'libreria_el_sol',
-    cliente_nombre: 'Carlos Pérez',
-    cliente_telefono: '+593998765432',
-    estado: 'necesita_revision',
-    items: [
-      { nombre: 'Bolígrafo azul', cantidad: 5, precio_unitario: 0.4, subtotal: 2.0 },
-      { nombre: 'Borrador blanco', cantidad: 1, precio_unitario: 0.25, subtotal: 0.25 },
-    ],
-    total: 2.25,
-    created_at: new Date(Date.now() - 1000 * 60 * 38).toISOString(),
-    updated_at: new Date(Date.now() - 1000 * 60 * 38).toISOString(),
-    accion_pendiente: 'Verificar pago recibido',
-  },
-  {
-    id: 'ped_003',
-    tenant_id: 'libreria_el_sol',
-    cliente_nombre: 'Ana López',
-    cliente_telefono: '+593997654321',
-    estado: 'confirmado_pagado',
-    items: [
-      { nombre: 'Cuaderno universitario', cantidad: 2, precio_unitario: 3.0, subtotal: 6.0 },
-      { nombre: 'Agenda 2026', cantidad: 1, precio_unitario: 8.5, subtotal: 8.5 },
-    ],
-    total: 14.5,
-    created_at: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
-    updated_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-  },
-  {
-    id: 'ped_004',
-    tenant_id: 'libreria_el_sol',
-    cliente_nombre: 'Luis Rivera',
-    cliente_telefono: '+593996543210',
-    estado: 'despachado',
-    items: [
-      { nombre: 'Resma papel A4', cantidad: 1, precio_unitario: 5.5, subtotal: 5.5 },
-    ],
-    total: 5.5,
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
-    updated_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-  },
-];
-
 export async function listarPedidos(tenantId: string): Promise<Pedido[]> {
-  if (API_URL) {
-    try {
-      const res = await fetchConTimeout(`${API_URL}/api/pedidos?tenantId=${tenantId}`);
-      if (res.ok) {
-        const raw = await res.json();
-        if (Array.isArray(raw)) {
-          return raw.map((p: any) => ({
-            id: p.id,
-            tenant_id: p.tenant_id || p.tenantId || tenantId,
-            cliente_nombre: p.cliente_nombre || p.clienteNombre || 'Cliente WhatsApp',
-            cliente_telefono: p.cliente_telefono || p.clienteTelefono || '',
-            estado: p.estado === 'confirmado' ? 'confirmado_pagado' : (p.estado || 'necesita_revision'),
-            items: (p.items || []).map((it: any) => ({
-              nombre: it.nombre || '',
-              cantidad: it.cantidad || 1,
-              precio_unitario: it.precio_unitario || it.precioUnitario || 0,
-              subtotal: (it.cantidad || 1) * (it.precio_unitario || it.precioUnitario || 0),
-            })),
-            total: typeof p.total === 'number' ? p.total : Number(p.total) || 0,
-            created_at: p.created_at || p.fechaCreacion || new Date().toISOString(),
-            updated_at: p.updated_at || p.fechaActualizacion || new Date().toISOString(),
-            accion_pendiente: p.accion_pendiente || p.accionPendiente || (p.estado === 'necesita_revision' ? 'Verificar pedido' : undefined),
-          }));
-        }
+  try {
+    const res = await fetchConTimeout(`${API_URL}/api/pedidos?tenantId=${encodeURIComponent(tenantId)}`);
+    if (res.ok) {
+      const raw = await res.json();
+      if (Array.isArray(raw)) {
+        return raw.map((p: any) => ({
+          id: p.id,
+          tenant_id: p.tenant_id || p.tenantId || tenantId,
+          cliente_nombre: p.cliente_nombre || p.clienteNombre || 'Cliente WhatsApp',
+          cliente_telefono: p.cliente_telefono || p.clienteTelefono || '',
+          estado: p.estado === 'confirmado' ? 'confirmado_pagado' : (p.estado || 'necesita_revision'),
+          items: (p.items || []).map((it: any) => ({
+            nombre: it.nombre,
+            cantidad: it.cantidad,
+            precio_unitario: it.precioUnitario ?? it.precio_unitario ?? 0,
+            subtotal: it.subtotal ?? (it.cantidad * (it.precioUnitario ?? it.precio_unitario ?? 0)),
+          })),
+          total: p.total ?? 0,
+          created_at: p.created_at || p.createdAt || new Date().toISOString(),
+          updated_at: p.updated_at || p.updatedAt || new Date().toISOString(),
+          accion_pendiente: p.accion_pendiente || (p.estado === 'necesita_revision' ? 'Revisar items' : undefined),
+        }));
       }
-    } catch {}
+    }
+  } catch (e) {
+    console.error('[API listarPedidos error]', e);
   }
-  return PEDIDOS_MOCK;
+
+  return [];
+}
+
+export async function getPedido(tenantId: string, id: string): Promise<Pedido | null> {
+  const pedidos = await listarPedidos(tenantId);
+  return pedidos.find((p) => p.id === id) || null;
 }
 
 /* ============================================================
-   INVENTARIO
+   INVENTARIO / PRODUCTOS (REAL DATABASE)
    ============================================================ */
 
-const PRODUCTOS_MOCK: Producto[] = [
-  { id: 'p1', nombre: 'Cuaderno college 100h', familia: 'cuaderno', precio: 2.5, disponible: true },
-  { id: 'p2', nombre: 'Cuaderno universitario', familia: 'cuaderno', precio: 3.0, disponible: true },
-  { id: 'p3', nombre: 'Lápiz 2B', familia: 'lapiz', precio: 0.5, disponible: true },
-  { id: 'p4', nombre: 'Lápiz HB', familia: 'lapiz', precio: 0.4, disponible: false },
-  { id: 'p5', nombre: 'Bolígrafo azul', familia: 'boligrafo', precio: 0.4, disponible: true },
-  { id: 'p6', nombre: 'Bolígrafo negro', familia: 'boligrafo', precio: 0.4, disponible: true },
-  { id: 'p7', nombre: 'Bolígrafo rojo', familia: 'boligrafo', precio: 0.4, disponible: true },
-  { id: 'p8', nombre: 'Borrador blanco', familia: 'borrador', precio: 0.25, disponible: true },
-  { id: 'p9', nombre: 'Sacapuntas', familia: 'sacapuntas', precio: 0.3, disponible: true },
-  { id: 'p10', nombre: 'Resma papel A4', familia: 'papel', precio: 5.5, disponible: true },
-  { id: 'p11', nombre: 'Carpeta plástica', familia: 'carpeta', precio: 1.2, disponible: false },
-  { id: 'p12', nombre: 'Agenda 2026', familia: 'agenda', precio: 8.5, disponible: true },
-];
-
 export async function listarProductos(tenantId: string): Promise<Producto[]> {
-  if (API_URL) {
-    try {
-      const res = await fetchConTimeout(`${API_URL}/api/tenants/${tenantId}/productos`);
-      if (res.ok) {
-        const data = await res.json();
-        return Array.isArray(data) ? data : [];
+  try {
+    const res = await fetchConTimeout(`${API_URL}/api/tenants/${encodeURIComponent(tenantId)}/inventario`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        return data.map((item: any) => ({
+          id: item.id,
+          nombre: item.nombre,
+          familia: item.familia || 'general',
+          precio: typeof item.precio === 'number' ? item.precio : parseFloat(item.precio || '0'),
+          disponible: item.disponible !== false,
+        }));
       }
-      return [];
-    } catch {
-      // Si el backend no responde, solo devolvemos vacío para no mezclar datos de otras librerías
-      return [];
     }
+  } catch (e) {
+    console.error('[API listarProductos error]', e);
   }
+
   return [];
 }
 
 export async function toggleProductoStock(tenantId: string, productoId: string, disponible: boolean): Promise<boolean> {
-  if (API_URL) {
-    try {
-      const res = await fetchConTimeout(`${API_URL}/api/tenants/${tenantId}/productos/${productoId}/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ disponible }),
-      });
-      return res.ok;
-    } catch {}
+  try {
+    const res = await fetchConTimeout(`${API_URL}/api/tenants/${encodeURIComponent(tenantId)}/inventario`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: productoId, disponible }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
-  return true;
 }
 
 /* ============================================================
-   DESPACHOS
+   DESPACHOS (REAL DATABASE)
    ============================================================ */
 
-const COMANDAS_MOCK: Comanda[] = [
-  {
-    pedido_id: 'ped_003',
-    cliente: 'Ana López',
-    direccion: 'Av. Amazonas 1234, Quito',
-    items: [
-      { nombre: 'Cuaderno universitario', cantidad: 2 },
-      { nombre: 'Agenda 2026', cantidad: 1 },
-    ],
-    created_at: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
-  },
-  {
-    pedido_id: 'ped_004',
-    cliente: 'Luis Rivera',
-    direccion: 'Calle El Sol 456, Quito',
-    items: [{ nombre: 'Resma papel A4', cantidad: 1 }],
-    tomado_por: 'César',
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
-  },
-];
-
 export async function listarComandas(tenantId: string): Promise<Comanda[]> {
-  if (API_URL) {
-    try {
-      const res = await fetchConTimeout(`${API_URL}/api/tenants/${tenantId}/despachos`);
-      if (res.ok) return await res.json();
-    } catch {}
+  const pedidos = await listarPedidos(tenantId);
+  return pedidos
+    .filter((p) => p.estado === 'confirmado_pagado' || p.estado === 'despachado')
+    .map((p) => ({
+      pedido_id: p.id,
+      cliente: p.cliente_nombre,
+      direccion: 'Retiro en mostrador / Por coordinar',
+      items: p.items.map((i) => ({ nombre: i.nombre, cantidad: i.cantidad })),
+      created_at: p.created_at,
+    }));
+}
+
+export async function marcarDespachado(tenantId: string, pedidoId: string, tomadoPor: string): Promise<boolean> {
+  try {
+    const res = await fetchConTimeout(`${API_URL}/api/pedidos/${encodeURIComponent(pedidoId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado: 'despachado' }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
-  return COMANDAS_MOCK;
 }
