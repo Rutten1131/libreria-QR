@@ -1,0 +1,47 @@
+// Estados de la conversacion
+export type ConversationState =
+  | 'INICIAL'
+  | 'CONFIRMANDO_LISTA'
+  | 'CONFIRMANDO_LISTA_CORREGIDA'
+  | 'AGREGANDO_ITEMS'
+  | 'RESOLVIENDO_VARIANTES'
+  | 'CONFIRMANDO_COTIZACION'
+  | 'CONFIRMANDO_LOGISTICA'
+  | 'CONFIRMANDO_PAGO'
+  | 'DERIVADO_A_HUMANO'
+  | 'COMPLETADO'
+  | 'ABANDONADO';
+
+export const TODOS_LOS_ESTADOS: ConversationState[] = [
+  'INICIAL',
+  'CONFIRMANDO_LISTA',
+  'CONFIRMANDO_LISTA_CORREGIDA',
+  'AGREGANDO_ITEMS',
+  'RESOLVIENDO_VARIANTES',
+  'CONFIRMANDO_COTIZACION',
+  'CONFIRMANDO_LOGISTICA',
+  'CONFIRMANDO_PAGO',
+  'DERIVADO_A_HUMANO',
+  'COMPLETADO',
+  'ABANDONADO',
+];
+
+// Transiciones validas. El switch determinista SOLO puede pasar por aqui.
+// Cualquier decision de la IA que intente ir de A -> C sin pasar por B es RECHAZADA.
+export const TRANSICIONES_VALIDAS: Record<ConversationState, ConversationState[]> = {
+  INICIAL:                  ['CONFIRMANDO_LISTA', 'DERIVADO_A_HUMANO'],
+  CONFIRMANDO_LISTA:        ['CONFIRMANDO_LISTA_CORREGIDA', 'RESOLVIENDO_VARIANTES', 'CONFIRMANDO_COTIZACION', 'DERIVADO_A_HUMANO'],
+  CONFIRMANDO_LISTA_CORREGIDA: ['RESOLVIENDO_VARIANTES', 'CONFIRMANDO_COTIZACION', 'CONFIRMANDO_LISTA', 'DERIVADO_A_HUMANO'],
+  AGREGANDO_ITEMS:          ['CONFIRMANDO_LISTA', 'CONFIRMANDO_LISTA_CORREGIDA', 'DERIVADO_A_HUMANO'],
+  RESOLVIENDO_VARIANTES:    ['CONFIRMANDO_COTIZACION', 'DERIVADO_A_HUMANO'],
+  CONFIRMANDO_COTIZACION:   ['CONFIRMANDO_LOGISTICA', 'DERIVADO_A_HUMANO', 'CONFIRMANDO_LISTA'], // puede volver si objeta precio
+  CONFIRMANDO_LOGISTICA:    ['CONFIRMANDO_PAGO', 'DERIVADO_A_HUMANO'],
+  CONFIRMANDO_PAGO:         ['DERIVADO_A_HUMANO', 'COMPLETADO'],
+  DERIVADO_A_HUMANO:        ['COMPLETADO', 'ABANDONADO'],
+  COMPLETADO:               [], // estado terminal
+  ABANDONADO:               [], // estado terminal
+};
+
+export function esTransicionValida(desde: ConversationState, hacia: ConversationState): boolean {
+  return TRANSICIONES_VALIDAS[desde]?.includes(hacia) ?? false;
+}
