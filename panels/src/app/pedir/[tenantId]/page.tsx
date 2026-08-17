@@ -127,7 +127,7 @@ export default function PedirWebPage() {
       reader.onerror = reject;
 
       img.onload = () => {
-        const maxDim = 1500;
+        const maxDim = 1000;
         let { width, height } = img;
         if (width > maxDim || height > maxDim) {
           if (width > height) {
@@ -152,8 +152,9 @@ export default function PedirWebPage() {
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Comprimir a JPEG al 80% (ultra nítido para OCR, tamaño ~150KB en vez de 10MB)
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        // Calidad 70% (~60KB por foto, ultra ligero y nítido para OCR)
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.70);
+        console.log(`[Foto Comprimida] Original: ${(file.size / 1024).toFixed(0)}KB -> Comprimido: ${(compressedBase64.length / 1024).toFixed(0)}KB`);
         resolve(compressedBase64);
       };
 
@@ -190,8 +191,13 @@ export default function PedirWebPage() {
           return;
         }
 
-        // Convertir todas las fotos a base64
-        const base64List = await Promise.all(fotos.map((f) => fileToBase64(f.file)));
+        // Convertir y comprimir todas las fotos a base64 (~60KB cada una)
+        const base64List = (await Promise.all(fotos.map((f) => fileToBase64(f.file)))).filter((b) => b && b.length > 50);
+        if (base64List.length === 0) {
+          setError('No se pudo procesar la imagen. Intenta con otra foto o escribe la lista en texto.');
+          setPaso('subir');
+          return;
+        }
         bodyData.imagenes = base64List;
       }
 

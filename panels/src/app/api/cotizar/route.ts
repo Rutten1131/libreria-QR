@@ -5,6 +5,13 @@ import { transcribirOCR } from '@/server/adapters/iaAdapter';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    message: 'Endpoint /api/cotizar activo. Envía tu petición mediante POST con { tenantId, lista o imagenes }.',
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
