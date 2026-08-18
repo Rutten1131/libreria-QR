@@ -36,6 +36,35 @@
 
   /* ---- Header height ---- */
   --header-h: 74px;
+
+  /* ---- Defaults (para que funcione antes de que JS aplique data-theme) ---- */
+  --bg-base: #0f111a;
+  --bg-overlay: rgba(10, 12, 20, 0.22);
+  --glass-bg: rgba(18, 22, 33, 0.45);
+  --glass-bg-hover: rgba(255, 255, 255, 0.08);
+  --glass-bg-deep: rgba(0, 0, 0, 0.28);
+  --glass-stroke: rgba(255, 255, 255, 0.16);
+  --glass-stroke-strong: rgba(255, 255, 255, 0.28);
+  --glass-specular: inset 0 1px 1px 0 rgba(255, 255, 255, 0.20), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --glass-shadow: 0 30px 70px rgba(0, 0, 0, 0.45);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.70);
+  --text-muted: rgba(255, 255, 255, 0.44);
+  --accent: #22c55e;
+  --accent-soft: rgba(255, 255, 255, 0.06);
+  --accent-border: rgba(255, 255, 255, 0.12);
+  --accent-glow: none;
+  --warn: #eab308;
+  --warn-soft: rgba(255, 255, 255, 0.06);
+  --warn-border: rgba(255, 255, 255, 0.12);
+  --warn-glow: none;
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.1);
+  --danger-border: rgba(239, 68, 68, 0.2);
+  --info: #38bdf8;
+  --info-soft: rgba(255, 255, 255, 0.06);
+  --info-border: rgba(255, 255, 255, 0.12);
+  --info-glow: none;
 }
 
 /* ---- Tema oscuro (default) ---- */

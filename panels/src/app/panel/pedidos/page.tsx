@@ -57,6 +57,7 @@ export default function PedidosPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
   const [mobileCol, setMobileCol] = useState<EstadoPedido>('necesita_revision');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenant) {
@@ -91,6 +92,10 @@ export default function PedidosPage() {
     filtrados.forEach((p) => g[p.estado].push(p));
     return g;
   }, [filtrados]);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  };
 
   return (
     <main className="lqr-main">
@@ -190,65 +195,84 @@ export default function PedidosPage() {
                       <p>Sin pedidos en esta bandeja</p>
                     </div>
                   ) : (
-                    grouped[col.id].map((p, i) => (
-                      <motion.article
-                        key={p.id}
-                        className={`lqr-order-card glass-card lqr-order-card--${col.accent}`}
-                        initial={{ opacity: 0, transform: 'translateY(8px)' }}
-                        animate={{ opacity: 1, transform: 'translateY(0px)' }}
-                        transition={{ duration: 0.28, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
-                        whileHover={{ transform: 'translateY(-2px)' }}
-                        whileTap={{ transform: 'scale(0.98)' }}
-                      >
-                        <Link href={`/panel/pedidos/${p.id}`} className="lqr-order-card__link">
-                          {/* Top Row: Avatar + Name + Time */}
-                          <div className="lqr-order-card__header">
-                            <Avatar nombre={p.cliente_nombre || 'Cliente'} size={40} />
+                    grouped[col.id].map((p, i) => {
+                      const isOpen = expandedId === p.id;
+                      return (
+                        <motion.article
+                          key={p.id}
+                          className={`lqr-order-card glass-card lqr-order-card--${col.accent} ${isOpen ? 'lqr-order-card--open' : ''}`}
+                          initial={{ opacity: 0, transform: 'translateY(8px)' }}
+                          animate={{ opacity: 1, transform: 'translateY(0px)' }}
+                          transition={{ duration: 0.28, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
+                        >
+                          {/* Collapsed header — always visible, click to expand */}
+                          <button
+                            className="lqr-order-card__toggle"
+                            onClick={() => toggleExpanded(p.id)}
+                            aria-expanded={isOpen}
+                          >
+                            <Avatar nombre={p.cliente_nombre || 'Cliente'} size={36} />
                             <div className="lqr-order-card__meta">
-                              <div className="lqr-order-card__title-row">
-                                <strong className="lqr-order-card__name">
-                                  {p.cliente_nombre?.trim() || 'Cliente WhatsApp'}
-                                </strong>
-                                {formatRelativo(p.created_at) && (
-                                  <span className="lqr-order-card__time">
-                                    {formatRelativo(p.created_at)}
-                                  </span>
-                                )}
-                              </div>
-                              <span className="lqr-order-card__id">Pedido #{p.id.slice(-6)}</span>
+                              <strong className="lqr-order-card__name">
+                                {p.cliente_nombre?.trim() || 'Cliente WhatsApp'}
+                              </strong>
+                              <span className="lqr-order-card__id">#{p.id.slice(-6)}</span>
                             </div>
-                          </div>
+                            <div className="lqr-order-card__right">
+                              <span className="lqr-order-card__total">${p.total.toFixed(2)}</span>
+                              <span className={`lqr-order-card__chevron ${isOpen ? 'lqr-order-card__chevron--open' : ''}`}>
+                                ▾
+                              </span>
+                            </div>
+                          </button>
 
-                          {/* Items Pills */}
-                          <div className="lqr-order-card__items">
-                            {p.items.slice(0, 2).map((it, idx) => (
-                              <span key={idx} className="lqr-item-tag">
-                                <strong className="lqr-item-tag__qty">{it.cantidad}×</strong> {it.nombre}
-                              </span>
-                            ))}
-                            {p.items.length > 2 && (
-                              <span className="lqr-item-tag lqr-item-tag--more">
-                                +{p.items.length - 2} útiles más
-                              </span>
-                            )}
-                          </div>
+                          {/* Expanded detail — only rendered when open */}
+                          {isOpen && (
+                            <motion.div
+                              className="lqr-order-card__detail"
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                            >
+                              <div className="lqr-order-card__info-row">
+                                <span>📞 {p.cliente_telefono || 'Sin teléfono'}</span>
+                                <span>{formatRelativo(p.created_at)}</span>
+                              </div>
 
-                          {/* Bottom Row: Total + Action */}
-                          <div className="lqr-order-card__footer">
-                            <span className="lqr-order-card__total">${p.total.toFixed(2)}</span>
-                            {p.accion_pendiente ? (
-                              <span className="lqr-order-card__action">
-                                {p.accion_pendiente} →
-                              </span>
-                            ) : (
-                              <span className="lqr-order-card__action lqr-order-card__action--muted">
-                                Ver detalle →
-                              </span>
-                            )}
-                          </div>
-                        </Link>
-                      </motion.article>
-                    ))
+                              {/* Items list */}
+                              <div className="lqr-order-card__items-list">
+                                {p.items.map((it, idx) => (
+                                  <div key={idx} className="lqr-detail-item">
+                                    <span className="lqr-detail-item__qty">{it.cantidad}×</span>
+                                    <span className="lqr-detail-item__name">{it.nombre}</span>
+                                    <span className="lqr-detail-item__price">
+                                      ${(it.precio_unitario * it.cantidad).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Ambiguous items */}
+                              {p.items_ambiguos && p.items_ambiguos.length > 0 && (
+                                <div className="lqr-order-card__ambiguos">
+                                  <strong className="lqr-order-card__amb-title">⚠️ No disponibles ({p.items_ambiguos.length})</strong>
+                                  {p.items_ambiguos.map((amb: string, idx: number) => (
+                                    <span key={idx} className="lqr-amb-tag">{amb}</span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Action button */}
+                              <div className="lqr-order-card__actions">
+                                <Link href={`/panel/pedidos/${p.id}`} className="lqr-order-card__action-btn">
+                                  {p.accion_pendiente || 'Ver detalle'} →
+                                </Link>
+                              </div>
+                            </motion.div>
+                          )}
+                        </motion.article>
+                      );
+                    })
                   )}
                 </div>
               </section>
@@ -406,32 +430,40 @@ export default function PedidosPage() {
           padding: 44px 0;
         }
 
-        /* ── Order Card ── */
+        /* ── Order Card (Accordion / Tab) ── */
         .lqr-order-card {
           border-radius: var(--radius-lg);
+          overflow: hidden;
+          transition: all var(--duration-fast) var(--ease-out);
         }
-        .lqr-order-card__link {
-          display: block;
-          padding: 18px 20px;
+        .lqr-order-card--open {
+          border-color: rgba(255, 255, 255, 0.35);
+          box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
         }
-        .lqr-order-card__header {
+        .lqr-order-card__toggle {
+          width: 100%;
           display: flex;
-          gap: 12px;
           align-items: center;
-          margin-bottom: 14px;
+          gap: 12px;
+          padding: 14px 16px;
+          text-align: left;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          transition: background var(--duration-fast) var(--ease-out);
+        }
+        .lqr-order-card__toggle:hover {
+          background: var(--glass-bg-hover);
         }
         .lqr-order-card__meta {
           flex: 1;
           min-width: 0;
-        }
-        .lqr-order-card__title-row {
           display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          gap: 8px;
+          flex-direction: column;
+          gap: 2px;
         }
         .lqr-order-card__name {
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 700;
           color: var(--text-primary);
           letter-spacing: -0.01em;
@@ -439,74 +471,126 @@ export default function PedidosPage() {
           overflow: hidden;
           text-overflow: ellipsis;
         }
-        .lqr-order-card__time {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text-muted);
-          flex-shrink: 0;
-        }
         .lqr-order-card__id {
           font-size: 11px;
           font-weight: 600;
           color: var(--text-muted);
         }
-
-        /* Items tags */
-        .lqr-order-card__items {
+        .lqr-order-card__right {
           display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-          margin-bottom: 14px;
-        }
-        .lqr-item-tag {
-          font-size: 12px;
-          font-weight: 500;
-          color: var(--text-secondary);
-          background: var(--glass-bg);
-          border: 1px solid var(--glass-stroke);
-          box-shadow: var(--glass-specular);
-          padding: 4px 10px;
-          border-radius: var(--radius-full);
-        }
-        .lqr-item-tag__qty {
-          color: var(--text-primary);
-          font-weight: 700;
-        }
-        .lqr-item-tag--more {
-          color: var(--text-muted);
-        }
-
-        /* Footer */
-        .lqr-order-card__footer {
-          display: flex;
-          justify-content: space-between;
           align-items: center;
           gap: 10px;
-          padding-top: 14px;
-          border-top: 1px solid var(--glass-stroke);
         }
         .lqr-order-card__total {
-          font-size: 19px;
+          font-size: 16px;
           font-weight: 800;
           color: var(--text-primary);
           letter-spacing: -0.02em;
-          line-height: 1;
         }
-        .lqr-order-card__action {
+        .lqr-order-card__chevron {
+          font-size: 16px;
+          color: var(--text-muted);
+          transition: transform var(--duration-fast) var(--ease-out);
+          display: inline-block;
+        }
+        .lqr-order-card__chevron--open {
+          transform: rotate(180deg);
+          color: var(--text-primary);
+        }
+
+        /* ── Detail Dropdown ── */
+        .lqr-order-card__detail {
+          padding: 12px 16px 16px;
+          border-top: 1px solid var(--glass-stroke);
+          background: rgba(0, 0, 0, 0.2);
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .lqr-order-card__info-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-muted);
+        }
+        .lqr-order-card__items-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          max-height: 220px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+        .lqr-detail-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          padding: 6px 10px;
+          border-radius: var(--radius-sm);
+          background: var(--glass-bg);
+          border: 1px solid var(--glass-stroke);
+        }
+        .lqr-detail-item__qty {
+          font-weight: 800;
+          color: var(--accent);
+          flex-shrink: 0;
+        }
+        .lqr-detail-item__name {
+          flex: 1;
+          color: var(--text-primary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .lqr-detail-item__price {
+          font-weight: 700;
+          color: var(--text-secondary);
+          flex-shrink: 0;
+        }
+        .lqr-order-card__ambiguos {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 10px;
+          border-radius: var(--radius-sm);
+          background: rgba(234, 179, 8, 0.08);
+          border: 1px solid rgba(234, 179, 8, 0.2);
+        }
+        .lqr-order-card__amb-title {
           font-size: 11px;
           font-weight: 700;
           color: var(--warn);
-          background: rgba(255, 176, 32, 0.12);
-          border: 1px solid rgba(255, 176, 32, 0.25);
-          padding: 4px 10px;
-          border-radius: var(--radius-full);
-          letter-spacing: 0.01em;
-          transition: background var(--duration-fast) var(--ease-out);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
         }
-        .lqr-order-card__action--muted {
-          color: var(--text-muted);
-          background: var(--glass-bg);
-          border-color: var(--glass-stroke);
+        .lqr-amb-tag {
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.8);
+        }
+        .lqr-order-card__actions {
+          display: flex;
+          justify-content: flex-end;
+          padding-top: 6px;
+        }
+        .lqr-order-card__action-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 16px;
+          border-radius: var(--radius-full);
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--text-primary);
+          background: var(--glass-bg-hover);
+          border: 1px solid var(--glass-stroke-strong);
+          transition: all var(--duration-fast) var(--ease-out);
+        }
+        .lqr-order-card__action-btn:hover {
+          background: var(--accent);
+          color: #000;
+          border-color: var(--accent);
         }
 
         /* Skeleton */

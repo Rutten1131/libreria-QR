@@ -27,6 +27,7 @@ export interface Pedido {
   updated_at: string;
   accion_pendiente?: string; // ej. "Confirmar variante", "Verificar pago"
   advertencia?: string;       // ej. "Stock bajo en 2 items"
+  items_ambiguos?: string[];
 }
 
 export interface Producto {
