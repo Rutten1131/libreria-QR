@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cotizar } from '@/server/services/matchingService';
 import { transcribirMultiplesImagenesOCR } from '@/server/adapters/iaAdapter';
+import { extraerTextoDePdfBuffer } from '@/server/services/pdfService';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -23,32 +24,48 @@ export async function POST(req: NextRequest) {
     let lineas: string[] = Array.isArray(lista) ? [...lista] : [];
     const imagenesParaOCR: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }> = [];
 
-    // 1. Descargar en paralelo todas las fotos desde Supabase Storage
+    // 1. Descargar en paralelo todos los archivos desde Supabase Storage
     if (Array.isArray(imageUrls) && imageUrls.length > 0) {
       const downloadTasks = imageUrls.map(async (url: string) => {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s max download
-          const imgRes = await fetch(url, { signal: controller.signal });
+          const res = await fetch(url, { signal: controller.signal });
           clearTimeout(timeoutId);
 
-          if (imgRes.ok) {
-            const arrayBuffer = await imgRes.arrayBuffer();
-            const base64 = Buffer.from(arrayBuffer).toString('base64');
-            const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-            const mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = contentType.includes('png') ? 'image/png' : 'image/jpeg';
-            return { base64, mimeType };
+          if (res.ok) {
+            const arrayBuffer = await res.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            // Detectar si el archivo es un PDF
+            const isPdf = buffer.slice(0, 5).toString() === '%PDF-' || url.toLowerCase().includes('.pdf');
+
+            if (isPdf) {
+              // Extraer texto nativo del PDF en milisegundos
+              const pdfLines = await extraerTextoDePdfBuffer(buffer);
+              return { type: 'pdf' as const, lines: pdfLines };
+            } else {
+              // Es una imagen (JPG, PNG, WebP)
+              const base64 = buffer.toString('base64');
+              const contentType = res.headers.get('content-type') || 'image/jpeg';
+              const mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = contentType.includes('png') ? 'image/png' : 'image/jpeg';
+              return { type: 'image' as const, base64, mimeType };
+            }
           }
         } catch (err: any) {
-          console.warn('[Error descargando foto de Storage]', url, err.message);
+          console.warn('[Error descargando archivo de Storage]', url, err.message);
         }
         return null;
       });
 
       const downloaded = await Promise.allSettled(downloadTasks);
-      for (const res of downloaded) {
-        if (res.status === 'fulfilled' && res.value) {
-          imagenesParaOCR.push(res.value);
+      for (const item of downloaded) {
+        if (item.status === 'fulfilled' && item.value) {
+          if (item.value.type === 'pdf') {
+            lineas.push(...item.value.lines);
+          } else if (item.value.type === 'image') {
+            imagenesParaOCR.push({ base64: item.value.base64, mimeType: item.value.mimeType });
+          }
         }
       }
     }
@@ -57,23 +74,41 @@ export async function POST(req: NextRequest) {
     if (Array.isArray(imagenes) && imagenes.length > 0) {
       for (const img of imagenes) {
         if (typeof img === 'string') {
-          imagenesParaOCR.push({ base64: img });
+          if (img.startsWith('JVBERi0')) { // Base64 de %PDF-
+            const pdfBuffer = Buffer.from(img, 'base64');
+            const pdfLines = await extraerTextoDePdfBuffer(pdfBuffer);
+            lineas.push(...pdfLines);
+          } else {
+            imagenesParaOCR.push({ base64: img });
+          }
         } else if (img?.base64) {
-          imagenesParaOCR.push(img);
+          if (img.base64.startsWith('JVBERi0')) {
+            const pdfBuffer = Buffer.from(img.base64, 'base64');
+            const pdfLines = await extraerTextoDePdfBuffer(pdfBuffer);
+            lineas.push(...pdfLines);
+          } else {
+            imagenesParaOCR.push(img);
+          }
         }
       }
     } else if (imagenBase64) {
-      imagenesParaOCR.push({ base64: imagenBase64 });
+      if (imagenBase64.startsWith('JVBERi0')) {
+        const pdfBuffer = Buffer.from(imagenBase64, 'base64');
+        const pdfLines = await extraerTextoDePdfBuffer(pdfBuffer);
+        lineas.push(...pdfLines);
+      } else {
+        imagenesParaOCR.push({ base64: imagenBase64 });
+      }
     }
 
-    // 3. Ejecutar OCR consolidado en UN SOLO llamado a la IA (evita límites de concurrencia)
+    // 3. Ejecutar OCR consolidado para las imágenes en UN SOLO llamado a la IA
     if (imagenesParaOCR.length > 0) {
       try {
         const ocrResult = await transcribirMultiplesImagenesOCR(imagenesParaOCR);
         if (ocrResult?.texto) {
           const parsed = ocrResult.texto
             .split('\n')
-            .map((l) => l.trim().replace(/^[-*•\d.)\s]+/, '').trim())
+            .map((l) => l.trim().replace(/^[-*•\d.)\s]+/, '').trim())
             .filter((l) => l.length > 2);
           lineas.push(...parsed);
         }
@@ -82,12 +117,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Limpiar duplicados vacíos
+    // Limpiar duplicados y vacíos
     lineas = Array.from(new Set(lineas.map((l) => l.trim()).filter((l) => l.length > 2)));
 
     if (lineas.length === 0) {
       return NextResponse.json(
-        { error: 'No se encontraron útiles escolares legibles en las fotos o lista. Intenta con fotos más nítidas o escribe los artículos en texto.' },
+        { error: 'No se encontraron útiles escolares legibles en el documento o fotos. Intenta con fotos más nítidas o escribe los artículos en texto.' },
         { status: 400 }
       );
     }
