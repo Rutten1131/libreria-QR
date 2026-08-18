@@ -45,13 +45,25 @@ export async function guardarPedido(input: {
 }): Promise<Pedido> {
   const sb = getSupabase();
 
+  // 0. Resolver ID real del tenant (puede llegar el ID o el teléfono)
+  let targetTenantId = input.tenantId;
+  const { data: tenantData } = await sb
+    .from('tenants')
+    .select('id')
+    .or(`id.eq.${input.tenantId},telefono.eq.${input.tenantId}`)
+    .maybeSingle();
+
+  if (tenantData?.id) {
+    targetTenantId = tenantData.id;
+  }
+
   // 1. Upsert cliente
   let clienteId: string | null = null;
   if (input.clienteTelefono) {
     const { data: existing } = await sb
       .from('clientes')
       .select('id')
-      .eq('tenant_id', input.tenantId)
+      .eq('tenant_id', targetTenantId)
       .eq('telefono', input.clienteTelefono)
       .maybeSingle();
     if (existing) {
@@ -62,7 +74,7 @@ export async function guardarPedido(input: {
       const { data: created } = await sb
         .from('clientes')
         .insert({
-          tenant_id: input.tenantId,
+          tenant_id: targetTenantId,
           telefono: input.clienteTelefono,
           nombre: input.clienteNombre,
           cedula: cedulaPlaceholder,
@@ -77,7 +89,7 @@ export async function guardarPedido(input: {
   const { data: pedidoRow, error: e1 } = await sb
     .from('pedidos')
     .insert({
-      tenant_id: input.tenantId,
+      tenant_id: targetTenantId,
       cliente_id: clienteId,
       cliente_nombre: input.clienteNombre,
       cliente_telefono: input.clienteTelefono,
@@ -91,19 +103,25 @@ export async function guardarPedido(input: {
     .single();
   if (e1 || !pedidoRow) throw new Error(`crear pedido: ${e1?.message}`);
 
-  // 3. Insertar items
-  if (input.items.length > 0) {
-    const itemRows = input.items.map((it) => ({
+  // 3. Insertar items (filtrar items disponibles para no registrar productos nulos en pedido_items)
+  if (Array.isArray(input.items) && input.items.length > 0) {
+    const itemsValidos = input.items.filter((it: any) => it.disponible !== false);
+    const itemsParaGuardar = itemsValidos.length > 0 ? itemsValidos : input.items;
+
+    const itemRows = itemsParaGuardar.map((it: any) => ({
       pedido_id: pedidoRow.id,
-      producto_id: it.productoId,
-      nombre: it.nombre,
+      producto_id: it.productoId || it.producto_id || null,
+      nombre: it.nombre || it.nombre_encontrado || it.item || 'Útil escolar',
       variante: it.variante ?? null,
-      cantidad: it.cantidad,
-      precio_unitario: it.precioUnitario,
-      match_confidence: it.matchConfidence,
+      cantidad: it.cantidad || 1,
+      precio_unitario: Number(it.precioUnitario ?? it.precio_unitario ?? 0),
+      match_confidence: it.matchConfidence || (it.disponible ? 'alta' : 'baja'),
     }));
-    const { error: e2 } = await sb.from('pedido_items').insert(itemRows);
-    if (e2) throw new Error(`insert items: ${e2.message}`);
+
+    if (itemRows.length > 0) {
+      const { error: e2 } = await sb.from('pedido_items').insert(itemRows);
+      if (e2) throw new Error(`insert items: ${e2.message}`);
+    }
   }
 
   // 4. Evento de auditoria
