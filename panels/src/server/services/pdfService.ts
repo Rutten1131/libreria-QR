@@ -6,7 +6,8 @@ import { extractText } from 'unpdf';
  */
 export async function extraerTextoDePdfBuffer(buffer: Buffer): Promise<string[]> {
   try {
-    const { text: pages } = await extractText(buffer);
+    const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const { text: pages } = await extractText(uint8);
 
     // pages es un array de strings, uno por página
     const rawText = Array.isArray(pages) ? pages.join('\n') : String(pages);
