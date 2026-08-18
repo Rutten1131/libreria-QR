@@ -162,6 +162,37 @@ export default function PedirWebPage() {
     });
   };
 
+  // Subida directa del navegador a Supabase Storage
+  const subirFotoDirectoASupabase = async (file: File): Promise<string | null> => {
+    try {
+      const signRes = await fetch(`${API_URL}/api/upload/sign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type }),
+      });
+      if (!signRes.ok) return null;
+      const { signedUploadUrl, publicUrl } = await signRes.json();
+      if (!signedUploadUrl || !publicUrl) return null;
+
+      const uploadRes = await fetch(signedUploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'image/jpeg',
+        },
+        body: file,
+      });
+
+      if (uploadRes.ok) {
+        console.log('[Supabase Storage Directo] Subida exitosa:', publicUrl);
+        return publicUrl;
+      }
+      return null;
+    } catch (e: any) {
+      console.warn('[Supabase Storage Upload Warning]', e.message);
+      return null;
+    }
+  };
+
   // Procesar cotización
   const handleCotizar = async () => {
     setError(null);
@@ -191,14 +222,22 @@ export default function PedirWebPage() {
           return;
         }
 
-        // Convertir y comprimir todas las fotos a base64 (~60KB cada una)
-        const base64List = (await Promise.all(fotos.map((f) => fileToBase64(f.file)))).filter((b) => b && b.length > 50);
-        if (base64List.length === 0) {
-          setError('No se pudo procesar la imagen. Intenta con otra foto o escribe la lista en texto.');
-          setPaso('subir');
-          return;
+        // 1. Subida directa a Supabase Storage (petición a Vercel pesará menos de 0.2 KB)
+        const uploadPromises = fotos.map((f) => subirFotoDirectoASupabase(f.file));
+        const uploadedUrls = (await Promise.all(uploadPromises)).filter(Boolean) as string[];
+
+        if (uploadedUrls.length > 0) {
+          bodyData.imageUrls = uploadedUrls;
+        } else {
+          // Fallback a base64 comprimido
+          const base64List = (await Promise.all(fotos.map((f) => fileToBase64(f.file)))).filter((b) => b && b.length > 50);
+          if (base64List.length === 0) {
+            setError('No se pudo procesar la imagen. Intenta con otra foto o escribe la lista en texto.');
+            setPaso('subir');
+            return;
+          }
+          bodyData.imagenes = base64List;
         }
-        bodyData.imagenes = base64List;
       }
 
       const res = await fetch(`${API_URL}/api/cotizar`, {

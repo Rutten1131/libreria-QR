@@ -8,21 +8,47 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    message: 'Endpoint /api/cotizar activo. Envía tu petición mediante POST con { tenantId, lista o imagenes }.',
+    message: 'Endpoint /api/cotizar activo. Envía tu petición mediante POST con { tenantId, imageUrls, lista o imagenes }.',
   });
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, lista, imagenes, imagenBase64 } = body;
+    const { tenantId, lista, imageUrls, imagenes, imagenBase64 } = body;
     if (!tenantId) {
       return NextResponse.json({ error: 'tenantId es requerido' }, { status: 400 });
     }
 
     let lineas: string[] = Array.isArray(lista) ? [...lista] : [];
 
-    // Procesar imágenes (múltiples fotos o foto individual)
+    // 1. Procesar URLs públicas de Supabase Storage (Subida directa desde navegador)
+    if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+      for (const url of imageUrls) {
+        try {
+          const imgRes = await fetch(url);
+          if (imgRes.ok) {
+            const arrayBuffer = await imgRes.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString('base64');
+            const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+            const mimeType = contentType.includes('png') ? 'image/png' : 'image/jpeg';
+
+            const ocr = await transcribirOCR(base64, mimeType as any);
+            if (ocr.texto) {
+              const parsed = ocr.texto
+                .split('\n')
+                .map((l) => l.trim().replace(/^[-*•\d.)\s]+/, '').trim())
+                .filter((l) => l.length > 2);
+              lineas.push(...parsed);
+            }
+          }
+        } catch (err: any) {
+          console.warn('[OCR from Storage URL error]', url, err.message);
+        }
+      }
+    }
+
+    // 2. Procesar imágenes directas en base64 (Fallback)
     const listaImagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }> = [];
     if (Array.isArray(imagenes) && imagenes.length > 0) {
       for (const img of imagenes) {
@@ -56,7 +82,7 @@ export async function POST(req: NextRequest) {
 
     if (lineas.length === 0) {
       return NextResponse.json(
-        { error: 'No se encontraron útiles escolares legibles. Intenta con fotos más claras o escribe la lista en texto.' },
+        { error: 'No se encontraron útiles escolares legibles en las fotos o lista. Intenta con fotos más nítidas o escribe los artículos en texto.' },
         { status: 400 }
       );
     }
@@ -65,6 +91,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ...resultado,
       lineasExtraidas: lineas,
+      fotosGuardadas: Array.isArray(imageUrls) ? imageUrls : [],
     });
   } catch (e: any) {
     console.error('[API Cotizar Error]', e);
