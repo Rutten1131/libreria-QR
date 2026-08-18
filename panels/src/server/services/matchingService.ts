@@ -1,7 +1,4 @@
-// Servicio de matching: dada una lista de items, encuentra productos en el catálogo
-// Soporta dos formatos de entrada para compatibilidad:
-//   - string[]                 → ["Cuaderno college 100h", "Bolígrafo azul"]      (cantidad=1)
-//   - {nombre, cantidad}[]     → [{nombre: "Cuaderno", cantidad: 3}]              (Bug #1 fix)
+// Servicio de matching inteligente: analiza útiles escolares y encuentra productos en el catálogo
 import { Producto, Cotizacion, PedidoItem } from '../domain/entities';
 import { getInventarioAsync } from '../adapters/inventarioAdapter';
 
@@ -16,67 +13,154 @@ function esItem(obj: EntradaCotizar): obj is ItemEntrada {
   return typeof obj === 'object' && obj !== null && 'nombre' in obj;
 }
 
+function extraerCantidadDeTexto(texto: string): number {
+  const match = texto.trim().match(/^(\d+)\b/);
+  if (match) {
+    const qty = parseInt(match[1], 10);
+    if (qty > 0 && qty < 500) return qty;
+  }
+  return 1;
+}
+
+function lematizar(palabra: string): string {
+  if (palabra.endsWith('ces') && palabra.length > 4) return palabra.slice(0, -3) + 'z'; // lapices -> lapiz
+  if (palabra.endsWith('es') && palabra.length > 4 && !palabra.endsWith('les')) return palabra.slice(0, -2);
+  if (palabra.endsWith('s') && palabra.length > 3 && !palabra.endsWith('as') && !palabra.endsWith('is')) return palabra.slice(0, -1);
+  if (palabra === 'plastico' || palabra === 'plastica' || palabra === 'plasticas') return 'plastico';
+  if (palabra === 'lapices' || palabra === 'lapiz') return 'lapiz';
+  if (palabra === 'pinturas' || palabra === 'colores') return 'pintura';
+  if (palabra === 'cuadernos') return 'cuaderno';
+  if (palabra === 'borradores') return 'borrador';
+  if (palabra === 'tijeras') return 'tijera';
+  if (palabra === 'gomas' || palabra === 'pega') return 'goma';
+  return palabra;
+}
+
 function normalizar(texto: string): string {
-  return texto.toLowerCase().trim();
+  const sinAcentos = texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return sinAcentos.split(' ').map(lematizar).join(' ');
 }
 
-function similitud(a: string, b: string): number {
-  const aNorm = normalizar(a);
-  const bNorm = normalizar(b);
-  if (aNorm === bNorm) return 1;
-  // Contains solo si el termino contenido tiene al menos 4 chars
-  if (bNorm.length >= 4 && (aNorm.includes(bNorm) || bNorm.includes(aNorm))) return 0.8;
-  // Levenshtein REAL (no por longitud). Esto evita falsos positivos por igual longitud.
-  const maxLen = Math.max(aNorm.length, bNorm.length);
-  if (maxLen === 0) return 1;
-  const dist = levenshtein(aNorm, bNorm);
-  // Ratio: 1.0 = identicos, 0.0 = todos los caracteres diferentes
-  return Math.max(0, 1 - dist / maxLen);
-}
+const STOPWORDS = new Set([
+  'de', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
+  'para', 'con', 'sin', 'por', 'en', 'del', 'al', 'y', 'o',
+  'tipo', 'tamano', 'grande', 'pequeno', 'cosido', 'parvulario',
+  'forrado', 'hoja', 'delgado', 'servicio', 'sobre', 'broche'
+]);
 
-function levenshtein(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,       // deletion
-        dp[i][j - 1] + 1,       // insertion
-        dp[i - 1][j - 1] + cost // substitution
-      );
+const NOUNS = [
+  'cuaderno', 'lapiz', 'borrador', 'tijera', 'sacapuntas',
+  'goma', 'resma', 'pintura', 'carpeta', 'regla', 'compas',
+  'corrector', 'juego', 'marcador'
+];
+
+/**
+ * Calcula similitud semántica y de tokens entre el ítem de la lista escolar y el producto de inventario.
+ */
+function calcularSimilitudInteligente(itemTexto: string, productoTexto: string): number {
+  const itemNorm = normalizar(itemTexto);
+  const prodNorm = normalizar(productoTexto);
+
+  if (itemNorm === prodNorm) return 1.0;
+  if (itemNorm.includes(prodNorm) || prodNorm.includes(itemNorm)) return 0.92;
+
+  const itemTokens = itemNorm.split(' ').filter((t) => t.length > 1 && !STOPWORDS.has(t));
+  const prodTokens = prodNorm.split(' ').filter((t) => t.length > 1 && !STOPWORDS.has(t));
+
+  if (itemTokens.length === 0 || prodTokens.length === 0) return 0;
+
+  // Claves diferenciales estrictas para no confundir cuadros con líneas o HB con 2B
+  if (itemNorm.includes('cuadro') && prodNorm.includes('linea')) return 0;
+  if (itemNorm.includes('linea') && prodNorm.includes('cuadro')) return 0;
+  if (itemNorm.includes('2b') && prodNorm.includes('hb')) return 0;
+  if (itemNorm.includes('hb') && prodNorm.includes('2b')) return 0;
+
+  let matches = 0;
+  let hasMainNoun = false;
+
+  for (const pToken of prodTokens) {
+    for (const iToken of itemTokens) {
+      if (
+        pToken === iToken ||
+        (pToken.length >= 4 && iToken.length >= 4 && (pToken.startsWith(iToken) || iToken.startsWith(pToken)))
+      ) {
+        matches++;
+        if (NOUNS.includes(pToken) || NOUNS.includes(iToken)) {
+          hasMainNoun = true;
+        }
+        break;
+      }
     }
   }
-  return dp[m][n];
+
+  if (!hasMainNoun) return 0;
+
+  const matchRatio = matches / prodTokens.length;
+  if (hasMainNoun && matchRatio >= 0.30) {
+    return 0.70 + matchRatio * 0.28;
+  }
+
+  return 0;
+}
+
+/**
+ * Filtra líneas de ruido que no son útiles escolares (instrucciones, notas, mensajes de IA)
+ */
+function esLineaValida(texto: string): boolean {
+  const low = texto.toLowerCase().trim();
+  if (low.length < 3) return false;
+  if (
+    low.startsWith('no se observan') ||
+    low.startsWith('no se encontraron') ||
+    low.startsWith('lista de') ||
+    low.startsWith('año lectivo') ||
+    low.startsWith('material individual') ||
+    low.startsWith('cartuchera') ||
+    low.startsWith('materiales varios') ||
+    low.startsWith('notas:') ||
+    low.startsWith('útiles de aseo') ||
+    low.includes('en todos los materiales') ||
+    low.includes('prendas del uniforme') ||
+    low.includes('permanente de cd') ||
+    low.includes('grado egb')
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**
  * Normaliza la entrada a un array de {nombre, cantidad}.
- * Acepta string[] (compat) o ItemEntrada[].
  */
 function normalizarEntrada(lista: EntradaCotizar[]): ItemEntrada[] {
-  return lista.map(e => {
-    if (esItem(e)) {
+  return lista
+    .filter((e) => {
+      const nombre = esItem(e) ? e.nombre : e;
+      return esLineaValida(nombre);
+    })
+    .map((e) => {
+      if (esItem(e)) {
+        return {
+          nombre: e.nombre,
+          cantidad: Number.isFinite(e.cantidad) && e.cantidad > 0 ? Math.floor(e.cantidad) : extraerCantidadDeTexto(e.nombre),
+        };
+      }
       return {
-        nombre: e.nombre,
-        cantidad: Number.isFinite(e.cantidad) && e.cantidad > 0 ? Math.floor(e.cantidad) : 1,
+        nombre: e,
+        cantidad: extraerCantidadDeTexto(e),
       };
-    }
-    return { nombre: e, cantidad: 1 };
-  });
+    });
 }
 
 /**
- * Cotiza una lista de items contra el inventario del tenant.
- * - Si el item matchea con un producto, devuelve PedidoItem con la cantidad del input.
- * - Si no matchea, va a ambiguos.
- *
- * IMPORTANTE: las cantidades del input se preservan en el resultado.
+ * Cotiza una lista de útiles escolares contra el inventario del tenant con matching semántico inteligente.
  */
 export async function cotizar(tenantId: string, lista: EntradaCotizar[]): Promise<Cotizacion> {
   const inventario = await getInventarioAsync(tenantId);
@@ -86,27 +170,24 @@ export async function cotizar(tenantId: string, lista: EntradaCotizar[]): Promis
   const ambiguos: string[] = [];
 
   for (const item of itemsNormalizados) {
-    const textoNorm = normalizar(item.nombre);
-
-    // Buscar mejor coincidencia
     let mejorMatch: Producto | null = null;
     let mejorSimilitud = 0;
 
     for (const producto of inventario) {
-      const sim = similitud(textoNorm, producto.nombre);
+      const sim = calcularSimilitudInteligente(item.nombre, producto.nombre);
       if (sim > mejorSimilitud) {
         mejorSimilitud = sim;
         mejorMatch = producto;
       }
     }
 
-    if (mejorMatch && mejorSimilitud >= 0.6) {
+    if (mejorMatch && mejorSimilitud >= 0.65) {
       items.push({
         productoId: mejorMatch.id,
         nombre: mejorMatch.nombre,
-        cantidad: item.cantidad, // ← BUG #1 FIX: usar la cantidad del input, no 1 fijo
+        cantidad: item.cantidad,
         precioUnitario: mejorMatch.precio,
-        matchConfidence: mejorSimilitud >= 0.8 ? 'alta' : 'baja',
+        matchConfidence: mejorSimilitud >= 0.85 ? 'alta' : 'baja',
       });
     } else {
       ambiguos.push(item.nombre);
