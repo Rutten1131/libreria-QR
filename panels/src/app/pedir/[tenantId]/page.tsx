@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import { extractPagesFromPdf } from '@/lib/pdfHelper';
 
 interface TenantInfo {
   id: string;
@@ -47,8 +48,9 @@ export default function PedirWebPage() {
   const [modoTexto, setModoTexto] = useState(false);
   const [textoLista, setTextoLista] = useState('');
   
-  // Soporte de múltiples fotos
+  // Soporte de múltiples fotos y PDFs
   const [fotos, setFotos] = useState<FotoItem[]>([]);
+  const [procesandoPdf, setProcesandoPdf] = useState(false);
 
   // Cotización
   const [cotizacion, setCotizacion] = useState<CotizacionResponse | null>(null);
@@ -78,16 +80,38 @@ export default function PedirWebPage() {
       .finally(() => setLoadingTenant(false));
   }, [tenantId]);
 
-  // Manejar selección / toma de fotos múltiples
-  const handleFilesAdd = (newFiles: FileList | File[]) => {
+  // Manejar selección / toma de fotos y documentos PDF
+  const handleFilesAdd = async (newFiles: FileList | File[]) => {
     const arr = Array.from(newFiles);
     if (arr.length === 0) return;
     setError(null);
 
     const nuevasFotos: FotoItem[] = [];
+
     for (const f of arr) {
-      if (f.type.startsWith('image/') || f.name.endsWith('.pdf')) {
-        const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : '';
+      const esPdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+
+      if (esPdf) {
+        setProcesandoPdf(true);
+        try {
+          // Extraer cada página del PDF como una imagen JPEG independiente
+          const paginasPdf = await extractPagesFromPdf(f);
+          for (const pag of paginasPdf) {
+            const pageFile = new File([pag.blob], pag.name, { type: 'image/jpeg' });
+            nuevasFotos.push({
+              id: Math.random().toString(36).substring(2, 9),
+              file: pageFile,
+              previewUrl: pag.previewUrl,
+            });
+          }
+        } catch (err: any) {
+          console.warn('[Error extrayendo páginas PDF]', err.message);
+          setError('No pudimos leer el PDF directamente. Intenta tomarle foto con la cámara.');
+        } finally {
+          setProcesandoPdf(false);
+        }
+      } else if (f.type.startsWith('image/')) {
+        const previewUrl = URL.createObjectURL(f);
         nuevasFotos.push({
           id: Math.random().toString(36).substring(2, 9),
           file: f,
@@ -96,7 +120,9 @@ export default function PedirWebPage() {
       }
     }
 
-    setFotos((prev) => [...prev, ...nuevasFotos]);
+    if (nuevasFotos.length > 0) {
+      setFotos((prev) => [...prev, ...nuevasFotos]);
+    }
   };
 
   const handleEliminarFoto = (id: string) => {
