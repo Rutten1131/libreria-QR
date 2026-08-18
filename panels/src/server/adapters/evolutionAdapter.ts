@@ -267,6 +267,12 @@ export async function eliminarInstancia(instanceName: string): Promise<void> {
 
 /* ============================================================
    VALIDAR WEBHOOK
+   Evolution API payload structure (con base64: true en webhook):
+   - Texto: payload.data.message.conversation
+   - Imagen: payload.data.message.imageMessage (metadata)
+            payload.data.message.base64 (contenido)
+   - Documento: payload.data.message.documentMessage (metadata)
+                payload.data.message.base64 (contenido)
    ============================================================ */
 export function validarWebhookEvolution(payload: any): {
   instanceName: string;
@@ -285,17 +291,60 @@ export function validarWebhookEvolution(payload: any): {
   const numero = remoteJid.split('@')[0];
 
   const msg = payload.data.message || {};
+  const messageType = payload.data?.messageType || '';
+
+  // --- Detectar tipo de mensaje ---
   const conversation = msg.conversation;
   const extendedText = msg.extendedTextMessage?.text;
-  const imageMsg = msg.imageMessage || msg.ephemeralMessage?.message?.imageMessage || msg.viewOnceMessageV2?.message?.imageMessage;
-  const docMsg = msg.documentMessage || msg.ephemeralMessage?.message?.documentMessage;
 
-  const texto = conversation || extendedText || imageMsg?.caption || docMsg?.caption;
-  const imagenBase64 = imageMsg?.base64 || payload.data?.base64;
+  // Imagen: puede venir como imageMessage, ephemeral, o viewOnce
+  const imageMsg =
+    msg.imageMessage ||
+    msg.ephemeralMessage?.message?.imageMessage ||
+    msg.viewOnceMessageV2?.message?.imageMessage ||
+    msg.viewOnceMessage?.message?.imageMessage;
+
+  // Documento (PDF, etc.)
+  const docMsg =
+    msg.documentMessage ||
+    msg.ephemeralMessage?.message?.documentMessage ||
+    msg.documentWithCaptionMessage?.message?.documentMessage;
+
+  // --- Extraer texto ---
+  const texto = conversation || extendedText || imageMsg?.caption || docMsg?.caption || docMsg?.fileName;
+
+  // --- Extraer base64 ---
+  // Evolution API con base64:true pone el contenido en msg.base64 (payload.data.message.base64)
+  // NO dentro de imageMessage.base64. Chequeamos todas las ubicaciones posibles.
+  const imagenBase64 =
+    msg.base64 ||                     // Evolution v2 standard location
+    imageMsg?.base64 ||               // Algunas versiones lo ponen aquí
+    payload.data?.base64 ||           // Fallback a data-level
+    payload.data?.body ||             // Otra variante de Evolution
+    null;
+
+  // --- Detectar mime type ---
   const rawMime = (imageMsg?.mimetype || docMsg?.mimetype || '') as string;
-  const mimeType = rawMime.includes('png') ? 'image/png' : 'image/jpeg';
+  let mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg';
+  if (rawMime.includes('png')) mimeType = 'image/png';
+  else if (rawMime.includes('webp')) mimeType = 'image/webp';
+
+  // --- Log de diagnóstico ---
+  const hasImage = !!imageMsg;
+  const hasDoc = !!docMsg;
+  const hasBase64 = !!imagenBase64;
+  const base64Len = imagenBase64 ? String(imagenBase64).length : 0;
+  console.log(
+    `[Webhook Parse] instance=${instance} numero=${numero} ` +
+    `messageType=${messageType} hasImage=${hasImage} hasDoc=${hasDoc} ` +
+    `hasBase64=${hasBase64} base64Len=${base64Len} ` +
+    `texto=${texto ? texto.substring(0, 50) : '(none)'} ` +
+    `mime=${rawMime}`
+  );
 
   if (!texto && !imagenBase64) {
+    console.log(`[Webhook Parse] Ignorado: sin texto ni base64. Keys en msg: ${Object.keys(msg).join(', ')}`);
+    console.log(`[Webhook Parse] Keys en data: ${Object.keys(payload.data || {}).join(', ')}`);
     return null;
   }
 

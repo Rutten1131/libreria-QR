@@ -9,12 +9,18 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const payload = await req.json();
+    const event = payload?.event || payload?.data?.messageType || 'unknown';
+    console.log(`[Webhook IN] event=${event} instance=${payload?.instance || 'N/A'} keys=${Object.keys(payload?.data || {}).join(',')}`);
+
     const datos = validarWebhookEvolution(payload);
 
     // Si es un evento no procesable (ej. status, connection_update, typing, fromMe, etc.)
     if (!datos || (!datos.texto && !datos.imagenBase64)) {
+      console.log(`[Webhook] Evento ignorado: event=${event} datos=${datos ? 'parsed-but-empty' : 'null'}`);
       return NextResponse.json({ ok: true, ignored: true });
     }
+
+    console.log(`[Webhook] Procesando: numero=${datos.numero} texto=${datos.texto?.substring(0, 40) || '(sin texto)'} imagen=${datos.imagenBase64 ? `${datos.imagenBase64.length} chars` : 'NO'} mime=${datos.mimeType}`);
 
     const sb = getSupabase();
     
