@@ -54,11 +54,22 @@ export async function POST(req: NextRequest) {
       mimeType: datos.mimeType,
     });
 
-    const advertencia = resultado.advertencia ? `\n\n📌 *Nota:* ${resultado.advertencia}` : '';
-    const totalFormateado = resultado.cotizacion?.total ? `$${resultado.cotizacion.total.toFixed(2)}` : '$0.00';
-    const totalItems = resultado.cotizacion?.items?.length || 0;
+    const itemsDisponibles = resultado.cotizacion?.items || [];
+    const lineasPreview = itemsDisponibles
+      .slice(0, 4)
+      .map((it) => `• ${it.cantidad}x ${it.nombre} ($${(it.precioUnitario * it.cantidad).toFixed(2)})`)
+      .join('\n');
+    const masItems = itemsDisponibles.length > 4 ? `\n... y ${itemsDisponibles.length - 4} útiles más` : '';
 
-    const resumen = `✨ *Tu Cotización está lista* ✨\n\n📋 *Artículos:* ${totalItems}\n💰 *Total Estimado:* ${totalFormateado}${advertencia}\n\n_Tu pedido ya fue registrado en el sistema de la papelería._`;
+    const faltantes = resultado.cotizacion?.ambiguos || [];
+    const textoFaltantes = faltantes.length > 0
+      ? `\n⚠️ *No disponibles en catálogo:* ${faltantes.length} artículos.`
+      : '';
+
+    const totalFormateado = resultado.cotizacion?.total ? `$${resultado.cotizacion.total.toFixed(2)}` : '$0.00';
+    const pedidoNum = resultado.pedido?.id ? `#${resultado.pedido.id.slice(-6)}` : '';
+
+    const resumen = `📚 *¡Hola! Hemos recibido tu lista de útiles* 📚\n\n${lineasPreview}${masItems}\n\n✅ *Útiles encontrados:* ${itemsDisponibles.length}\n💵 *Total Estimado:* ${totalFormateado}${textoFaltantes}\n\n_Tu pedido ${pedidoNum} ya fue registrado en el sistema de la papelería. En breve un asesor te escribirá para confirmar tu entrega o retiro._`;
 
     // Responder al cliente por WhatsApp
     await enviarMensaje(datos.instanceName, {
