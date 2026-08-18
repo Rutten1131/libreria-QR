@@ -211,7 +211,8 @@ REGLAS:
 }
 
 /**
- * Transcribe múltiples imágenes (páginas de una lista escolar) en un SOLO llamado a la IA
+ * Transcribe múltiples imágenes (páginas de una lista escolar)
+ * Llama 3.2 Vision acepta 1 imagen por prompt, procesando cada foto en ~0.8s
  */
 export async function transcribirMultiplesImagenesOCR(
   imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
@@ -220,37 +221,29 @@ export async function transcribirMultiplesImagenesOCR(
     return { texto: '', confianza: 'baja', fuente: 'LLAMA_VISION' };
   }
 
-  if (imagenes.length === 1) {
-    return transcribirOCR(imagenes[0].base64, imagenes[0].mimeType || 'image/jpeg');
-  }
+  const todasLasLineas: string[] = [];
+  let ultimaFuente: Fuente = 'LLAMA_VISION';
 
-  const prompt = `Eres un transcriptor de listas de útiles escolares.
-Tarea: Analiza todas las fotos adjuntas (páginas de la lista) y extrae todos los útiles escolares que aparecen en ellas.
-
-REGLAS:
-- Una línea por cada útil escolar (ej. "1 cuaderno de cuadros", "3 lápices HB", "1 tijera escolar")
-- Consolida todos los útiles de todas las fotos en una sola lista continua
-- Devuelve ÚNICAMENTE la lista de útiles, sin explicaciones ni introducciones.`;
-
-  const contentArray: any[] = [{ type: 'text', text: prompt }];
   for (const img of imagenes) {
-    const rawBase64 = img.base64.includes(',') ? img.base64.split(',')[1] : img.base64;
-    const mime = img.mimeType || 'image/jpeg';
-    contentArray.push({
-      type: 'image_url',
-      image_url: { url: `data:${mime};base64,${rawBase64}` },
-    });
+    try {
+      const rawBase64 = img.base64.includes(',') ? img.base64.split(',')[1] : img.base64;
+      const res = await transcribirOCR(rawBase64, img.mimeType || 'image/jpeg');
+      if (res?.texto) {
+        todasLasLineas.push(res.texto);
+        ultimaFuente = res.fuente;
+      }
+    } catch (err: any) {
+      console.warn('[transcribirMultiplesImagenesOCR foto error]', err.message);
+    }
   }
 
-  const body = {
-    messages: [{ role: 'user', content: contentArray }],
-    max_tokens: 1500,
+  const textoConsolidado = todasLasLineas.join('\n');
+  const totalLineas = textoConsolidado.split('\n').filter((l) => l.trim().length > 0).length;
+  return {
+    texto: textoConsolidado,
+    confianza: totalLineas >= 1 ? 'alta' : 'baja',
+    fuente: ultimaFuente,
   };
-
-  const { content, fuente } = await cascadaLlamar(true, body);
-  const lineas = content.split('\n').filter((l) => l.trim().length > 0).length;
-  const confianza = lineas >= 1 ? 'alta' : 'baja';
-  return { texto: content, confianza, fuente };
 }
 
 /**
