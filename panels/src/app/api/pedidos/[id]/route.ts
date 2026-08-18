@@ -50,3 +50,26 @@ export async function PATCH(
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const sb = getSupabase();
+
+    // 1. Eliminar items y eventos asociados
+    await sb.from('pedido_items').delete().eq('pedido_id', params.id);
+    await sb.from('pedido_eventos').delete().eq('pedido_id', params.id);
+
+    // 2. Eliminar pedido principal
+    const { error } = await sb.from('pedidos').delete().eq('id', params.id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, id: params.id });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

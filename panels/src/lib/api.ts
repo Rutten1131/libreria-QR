@@ -135,12 +135,31 @@ export async function listarComandas(tenantId: string): Promise<Comanda[]> {
     }));
 }
 
-export async function marcarDespachado(tenantId: string, pedidoId: string, tomadoPor: string): Promise<boolean> {
+export async function actualizarEstadoPedido(
+  tenantId: string,
+  pedidoId: string,
+  nuevoEstado: 'necesita_revision' | 'confirmado_pagado' | 'despachado'
+): Promise<boolean> {
   try {
     const res = await fetchConTimeout(`${API_URL}/api/pedidos/${encodeURIComponent(pedidoId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estado: 'despachado' }),
+      body: JSON.stringify({ estado: nuevoEstado }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function marcarDespachado(tenantId: string, pedidoId: string, tomadoPor: string): Promise<boolean> {
+  return actualizarEstadoPedido(tenantId, pedidoId, 'despachado');
+}
+
+export async function eliminarPedido(tenantId: string, pedidoId: string): Promise<boolean> {
+  try {
+    const res = await fetchConTimeout(`${API_URL}/api/pedidos/${encodeURIComponent(pedidoId)}`, {
+      method: 'DELETE',
     });
     return res.ok;
   } catch {
