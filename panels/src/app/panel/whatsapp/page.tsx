@@ -30,11 +30,24 @@ export default function TenantWhatsappPage() {
 
   const posterRef = useRef<HTMLDivElement>(null);
   const activeTenant = tenantId || getStoredTenant()?.id || '';
-  const nombreLibreria = tenantNombre || (getStoredTenant() as any)?.nombre || activeTenant || 'Mi Papelería';
+  const rawNombre = tenantNombre || (getStoredTenant() as any)?.nombre || '';
+  const [nombreNegocio, setNombreNegocio] = useState(
+    rawNombre && !/^\d+$/.test(rawNombre) ? rawNombre : 'Librería Prueba'
+  );
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    if (activeTenant) {
+      fetch(`${API_URL}/api/public/tenants/${activeTenant}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.tenant?.nombre) setNombreNegocio(d.tenant.nombre);
+        })
+        .catch(() => {});
+    }
+  }, [activeTenant]);
+
+  const nombreLibreria = nombreNegocio;
 
   const consultarEstado = useCallback(async () => {
     if (!activeTenant) return;
