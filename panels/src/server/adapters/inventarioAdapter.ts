@@ -6,12 +6,25 @@ let _cache: Map<string, Producto[]> | null = null;
 let _cacheTs = 0;
 const CACHE_TTL_MS = 30_000;
 
-export async function getInventarioAsync(tenantId: string): Promise<Producto[]> {
+export async function getInventarioAsync(tenantIdOrPhone: string): Promise<Producto[]> {
   const sb = getSupabase();
+
+  // Resolver ID real del tenant (puede llegar el ID o el teléfono)
+  let targetTenantId = tenantIdOrPhone;
+  const { data: tenantData } = await sb
+    .from('tenants')
+    .select('id')
+    .or(`id.eq.${tenantIdOrPhone},telefono.eq.${tenantIdOrPhone}`)
+    .maybeSingle();
+
+  if (tenantData?.id) {
+    targetTenantId = tenantData.id;
+  }
+
   const { data, error } = await sb
     .from('productos')
     .select('id, tenant_id, nombre, familia, precio, stock_cantidad')
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', targetTenantId);
   if (error) throw new Error(`getInventario: ${error.message}`);
   return (data ?? []).map((r: any) => ({
     id: r.id,

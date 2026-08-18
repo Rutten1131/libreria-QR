@@ -128,8 +128,39 @@ export async function POST(req: NextRequest) {
     }
 
     const resultado = await cotizar(tenantId, lineas);
+
+    // Items encontrados en inventario
+    const itemsDisponibles = (resultado.items || []).map((it) => ({
+      item: it.nombre,
+      producto_id: it.productoId,
+      nombre_encontrado: it.nombre,
+      precio_unitario: it.precioUnitario,
+      cantidad: it.cantidad || 1,
+      disponible: true,
+      matchConfidence: it.matchConfidence,
+    }));
+
+    // Items de la lista que no están en inventario (con observaciones)
+    const itemsNoDisponibles = (resultado.ambiguos || []).map((amb) => ({
+      item: amb,
+      producto_id: null,
+      nombre_encontrado: null,
+      precio_unitario: 0,
+      cantidad: 1,
+      disponible: false,
+      observacion: 'No disponible en tienda',
+    }));
+
+    const todosLosItems = [...itemsDisponibles, ...itemsNoDisponibles];
+
     return NextResponse.json({
-      ...resultado,
+      tenantId: resultado.tenantId,
+      items: todosLosItems,
+      total: resultado.total,
+      totalItems: todosLosItems.length,
+      encontrados: itemsDisponibles.length,
+      noEncontrados: itemsNoDisponibles.length,
+      ambiguos: resultado.ambiguos,
       lineasExtraidas: lineas,
       fotosGuardadas: Array.isArray(imageUrls) ? imageUrls : [],
     });

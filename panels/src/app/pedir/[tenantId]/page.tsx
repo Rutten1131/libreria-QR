@@ -589,17 +589,21 @@ export default function PedirWebPage() {
               {/* Lista de productos cotizados */}
               <div className="lqr-items-list">
                 {cotizacion.items.map((item, idx) => (
-                  <div key={idx} className="lqr-item-row">
+                  <div key={idx} className={`lqr-item-row ${!item.disponible ? 'lqr-item-row--out' : ''}`}>
                     <div className="lqr-item-info">
                       <strong className="lqr-item-name">{item.nombre_encontrado || item.item}</strong>
-                      <span className="lqr-item-orig">Buscado: "{item.item}"</span>
+                      <span className="lqr-item-orig">
+                        {item.disponible
+                          ? `Buscado: "${item.item}" · Cant: ${item.cantidad || 1} ($${item.precio_unitario.toFixed(2)} c/u)`
+                          : `No disponible en tienda · Buscado: "${item.item}"`}
+                      </span>
                     </div>
 
                     <div className="lqr-item-price-zone">
                       {item.disponible ? (
                         <span className="lqr-item-price">${(item.precio_unitario * (item.cantidad || 1)).toFixed(2)}</span>
                       ) : (
-                        <span className="lqr-item-out">Agotado</span>
+                        <span className="lqr-item-out">⚠️ Agotado</span>
                       )}
                     </div>
                   </div>
