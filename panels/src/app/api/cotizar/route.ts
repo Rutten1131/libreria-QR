@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cotizar } from '@/server/services/matchingService';
-import { transcribirOCR } from '@/server/adapters/iaAdapter';
+import { transcribirMultiplesImagenesOCR } from '@/server/adapters/iaAdapter';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -21,14 +21,14 @@ export async function POST(req: NextRequest) {
     }
 
     let lineas: string[] = Array.isArray(lista) ? [...lista] : [];
+    const imagenesParaOCR: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }> = [];
 
-    // 1. Procesar URLs públicas de Supabase Storage en PARALELO
+    // 1. Descargar en paralelo todas las fotos desde Supabase Storage
     if (Array.isArray(imageUrls) && imageUrls.length > 0) {
-      const ocrTasks = imageUrls.map(async (url: string) => {
+      const downloadTasks = imageUrls.map(async (url: string) => {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout por imagen
-
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s max download
           const imgRes = await fetch(url, { signal: controller.signal });
           clearTimeout(timeoutId);
 
@@ -36,70 +36,53 @@ export async function POST(req: NextRequest) {
             const arrayBuffer = await imgRes.arrayBuffer();
             const base64 = Buffer.from(arrayBuffer).toString('base64');
             const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-            const mimeType = contentType.includes('png') ? 'image/png' : 'image/jpeg';
-
-            const ocr = await transcribirOCR(base64, mimeType as any);
-            if (ocr?.texto) {
-              return ocr.texto
-                .split('\n')
-                .map((l) => l.trim().replace(/^[-*•\d.)\s]+/, '').trim())
-                .filter((l) => l.length > 2);
-            }
+            const mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = contentType.includes('png') ? 'image/png' : 'image/jpeg';
+            return { base64, mimeType };
           }
         } catch (err: any) {
-          console.warn('[OCR from Storage URL error]', url, err.message);
+          console.warn('[Error descargando foto de Storage]', url, err.message);
         }
-        return [];
+        return null;
       });
 
-      const ocrResults = await Promise.allSettled(ocrTasks);
-      for (const res of ocrResults) {
-        if (res.status === 'fulfilled' && Array.isArray(res.value)) {
-          lineas.push(...res.value);
+      const downloaded = await Promise.allSettled(downloadTasks);
+      for (const res of downloaded) {
+        if (res.status === 'fulfilled' && res.value) {
+          imagenesParaOCR.push(res.value);
         }
       }
     }
 
-    // 2. Procesar imágenes directas en base64 en PARALELO (Fallback)
-    const listaImagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }> = [];
+    // 2. Fallback de imágenes directas en base64
     if (Array.isArray(imagenes) && imagenes.length > 0) {
       for (const img of imagenes) {
         if (typeof img === 'string') {
-          listaImagenes.push({ base64: img });
+          imagenesParaOCR.push({ base64: img });
         } else if (img?.base64) {
-          listaImagenes.push(img);
+          imagenesParaOCR.push(img);
         }
       }
     } else if (imagenBase64) {
-      listaImagenes.push({ base64: imagenBase64 });
+      imagenesParaOCR.push({ base64: imagenBase64 });
     }
 
-    if (listaImagenes.length > 0) {
-      const base64Tasks = listaImagenes.map(async (img) => {
-        try {
-          const rawBase64 = img.base64.includes(',') ? img.base64.split(',')[1] : img.base64;
-          const ocr = await transcribirOCR(rawBase64, img.mimeType || 'image/jpeg');
-          if (ocr?.texto) {
-            return ocr.texto
-              .split('\n')
-              .map((l) => l.trim().replace(/^[-*•\d.)\s]+/, '').trim())
-              .filter((l) => l.length > 2);
-          }
-        } catch (e: any) {
-          console.warn('[OCR base64 warning]', e.message);
+    // 3. Ejecutar OCR consolidado en UN SOLO llamado a la IA (evita límites de concurrencia)
+    if (imagenesParaOCR.length > 0) {
+      try {
+        const ocrResult = await transcribirMultiplesImagenesOCR(imagenesParaOCR);
+        if (ocrResult?.texto) {
+          const parsed = ocrResult.texto
+            .split('\n')
+            .map((l) => l.trim().replace(/^[-*•\d.)\s]+/, '').trim())
+            .filter((l) => l.length > 2);
+          lineas.push(...parsed);
         }
-        return [];
-      });
-
-      const base64Results = await Promise.allSettled(base64Tasks);
-      for (const res of base64Results) {
-        if (res.status === 'fulfilled' && Array.isArray(res.value)) {
-          lineas.push(...res.value);
-        }
+      } catch (err: any) {
+        console.error('[OCR Multi-Image Error]', err.message);
       }
     }
 
-    // Limpiar duplicados vacíos o muy cortos
+    // Limpiar duplicados vacíos
     lineas = Array.from(new Set(lineas.map((l) => l.trim()).filter((l) => l.length > 2)));
 
     if (lineas.length === 0) {

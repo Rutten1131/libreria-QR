@@ -217,6 +217,53 @@ Devuelve SOLO el texto, una linea por item. Sin explicacion.`;
 }
 
 /**
+ * Transcribe múltiples imágenes (páginas de una lista escolar) en un SOLO llamado a la IA
+ * Evita errores 503 ResourceExhausted por concurrencia y procesa todo en ~4 segundos.
+ */
+export async function transcribirMultiplesImagenesOCR(
+  imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
+): Promise<OCRResult> {
+  if (imagenes.length === 0) {
+    return { texto: '', confianza: 'baja', fuente: 'NEMOTRON_OMNI' };
+  }
+
+  if (imagenes.length === 1) {
+    return transcribirOCR(imagenes[0].base64, imagenes[0].mimeType || 'image/jpeg');
+  }
+
+  const prompt = `Eres un transcriptor de listas de utiles escolares.
+Tarea: Analiza todas las fotos adjuntas (paginas de la lista de utiles) y extrae todos los utiles escolares que aparecen en ellas.
+
+REGLAS:
+- Una linea por cada util escolar
+- Sin numeracion, sin precios, sin categorias
+- Si no se lee un item, omitelo
+- Consolida todos los items de todas las fotos en una sola lista
+
+Devuelve SOLO la lista de utiles, una linea por item. Sin explicaciones ni introduccion.`;
+
+  const contentArray: any[] = [{ type: 'text', text: prompt }];
+  for (const img of imagenes) {
+    const rawBase64 = img.base64.includes(',') ? img.base64.split(',')[1] : img.base64;
+    const mime = img.mimeType || 'image/jpeg';
+    contentArray.push({
+      type: 'image_url',
+      image_url: { url: `data:${mime};base64,${rawBase64}` },
+    });
+  }
+
+  const body = {
+    messages: [{ role: 'user', content: contentArray }],
+    max_tokens: 1500,
+  };
+
+  const { content, fuente } = await cascadaLlamar(true, body);
+  const lineas = content.split('\n').filter(l => l.trim().length > 0).length;
+  const confianza = lineas >= 1 ? 'alta' : 'baja';
+  return { texto: content, confianza, fuente };
+}
+
+/**
  * Interpreta texto libre del cliente y devuelve items estructurados.
  * Cascade: llama-3.1-8b → 70b → 3.3-70b → mistral-nemotron → nemotron-ultra
  */
