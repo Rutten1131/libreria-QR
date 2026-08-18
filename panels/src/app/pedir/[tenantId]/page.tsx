@@ -162,24 +162,75 @@ export default function PedirWebPage() {
     });
   };
 
+  // Comprimir imagen a Blob ligero (~100KB) antes de subir a Storage
+  const comprimirABlob = (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      if (!file.type.startsWith('image/')) {
+        resolve(file);
+        return;
+      }
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
+      img.onload = () => {
+        const maxDim = 1200;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            resolve(blob || file);
+          },
+          'image/jpeg',
+          0.75
+        );
+      };
+      img.onerror = () => resolve(file);
+      reader.onerror = () => resolve(file);
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Subida directa del navegador a Supabase Storage
   const subirFotoDirectoASupabase = async (file: File): Promise<string | null> => {
     try {
       const signRes = await fetch(`${API_URL}/api/upload/sign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, fileType: file.type }),
+        body: JSON.stringify({ fileName: file.name, fileType: 'image/jpeg' }),
       });
       if (!signRes.ok) return null;
       const { signedUploadUrl, publicUrl } = await signRes.json();
       if (!signedUploadUrl || !publicUrl) return null;
 
+      const blob = await comprimirABlob(file);
+
       const uploadRes = await fetch(signedUploadUrl, {
         method: 'PUT',
         headers: {
-          'Content-Type': file.type || 'image/jpeg',
+          'Content-Type': 'image/jpeg',
         },
-        body: file,
+        body: blob,
       });
 
       if (uploadRes.ok) {
