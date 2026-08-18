@@ -1,25 +1,31 @@
-// Adapter de IA — cascade NVIDIA NIM (sin Groq, decisión 2026-08-16)
-// Estrategia: 9 modelos distintos de 3 proveedores (Meta, Mistral, NVIDIA)
-// Cada modelo es un "Free Endpoint" de build.nvidia.com → costo cero
-// Diversificación: si un proveedor/modelo falla, otro lo rescata
+// Adapter de Inteligencia Artificial para LibreríaQR (Vision OCR + Parsing)
+// Proveedor principal: NVIDIA NIM (NVIDIA Inference Microservices)
+// Cascade defensivo: Si un modelo falla o tarda más de 10s, pasa automáticamente al siguiente.
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
-interface ModeloPerfil {
+export interface ModeloPerfil {
   id: string;
   vision: boolean;
-  proveedor: 'meta' | 'mistral' | 'nvidia' | 'openai';
+  proveedor: 'nvidia' | 'mistral';
   descripcion: string;
   temperature: number;
 }
 
 const MODELOS: Record<string, ModeloPerfil> = {
   // === OCR / Vision ===
+  LLAMA_VISION: {
+    id: 'meta/llama-3.2-11b-vision-instruct',
+    vision: true,
+    proveedor: 'nvidia',
+    descripcion: 'Llama 3.2 11B Vision ultrarrápido (< 1s).',
+    temperature: 0.01,
+  },
   NEMOTRON_OMNI: {
     id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
     vision: true,
     proveedor: 'nvidia',
-    descripcion: 'Nemotron omni. Unico modelo vision confirmado funcional.',
+    descripcion: 'Nemotron omni (fallback con razonamiento).',
     temperature: 0.01,
   },
 
@@ -28,36 +34,21 @@ const MODELOS: Record<string, ModeloPerfil> = {
     id: 'nvidia/nemotron-3-ultra-550b-a55b',
     vision: false,
     proveedor: 'nvidia',
-    descripcion: 'Nemotron Ultra 550B. Unico modelo texto confirmado funcional.',
+    descripcion: 'Nemotron Ultra 550B. Modelo de texto principal.',
     temperature: 0.01,
   },
   MISTRAL_NEMOTRON: {
     id: 'mistralai/mistral-nemotron',
     vision: false,
     proveedor: 'mistral',
-    descripcion: 'Mistral Nemotron. Fallback agentic (no testeado).',
+    descripcion: 'Mistral Nemotron. Fallback de texto.',
     temperature: 0.01,
   },
 };
 
 // === Orden de cascade ===
-
-// Vision: solo nemotron-omni (todos los demas fallaron o no existen)
-// Los modelos vision de Llama interpretan el prompt como problema de coding → NO USABLES
-const CASCADE_VISION = ['NEMOTRON_OMNI'];
-
-// Texto: nemotron-ultra como primario, mistral-nemotron como fallback
-// APRENDIZAJE 2026-08-16:
-// - nemotron-ultra: FUNCIONA (inconsistente, razona en voz alta pero post-procesador corrige)
-// - nemotron-lighting: 404 (no existe con ese nombre)
-// - nemotron-nano: no disponible como texto (vision-only)
-// - Llama 8B/70B: tratan el prompt como problema de coding → NO USABLES
-// - GPT-OSS 120B: Downloadable (pago), no disponible en free tier → 404
-// - step-3.7-flash: respuesta vacia → NO USABLE
-const CASCADE_TEXT = [
-  'NEMOTRON_ULTRA',      // primario: el unico confirmado que funciona
-  'MISTRAL_NEMOTRON',    // fallback: agentic, no testeado todavia
-];
+const CASCADE_VISION = ['LLAMA_VISION', 'NEMOTRON_OMNI'];
+const CASCADE_TEXT = ['NEMOTRON_ULTRA', 'MISTRAL_NEMOTRON'];
 
 export type Fuente = keyof typeof MODELOS;
 
@@ -83,7 +74,7 @@ function getApiKey(): string {
 async function backoffRetry<T>(
   fn: () => Promise<T>,
   label: string,
-  maxReintentos = 1 // 1 reintento por modelo para no tardar mucho
+  maxReintentos = 1 // 1 reintento para no sumar latencia
 ): Promise<T> {
   let lastError: unknown;
   for (let intento = 0; intento <= maxReintentos; intento++) {
@@ -93,14 +84,14 @@ async function backoffRetry<T>(
       lastError = err;
       const msg = String(err?.message ?? err);
       const esRateLimit = /429|rate.?limit/i.test(msg);
-      const esTransient = /5\d\d|timeout|fetch failed|respuesta vacia/i.test(msg);
+      const esTransient = /5\d\d|timeout|abort|fetch failed|respuesta vacia/i.test(msg);
       if (!esRateLimit && !esTransient) {
         throw err;
       }
       if (intento < maxReintentos) {
-        const espera = 500 * Math.pow(2, intento);
+        const espera = 400 * Math.pow(2, intento);
         console.warn(`[iaAdapter] ${label} reintento tras ${espera}ms — ${msg.slice(0, 100)}`);
-        await new Promise(r => setTimeout(r, espera));
+        await new Promise((r) => setTimeout(r, espera));
       }
     }
   }
@@ -120,30 +111,38 @@ async function llamarModelo(
     temperature: modelo.temperature,
   };
 
-  const response = await fetch(NVIDIA_API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout estricto
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`${modeloKey} ${response.status}: ${errorBody.slice(0, 150)}`);
+  try {
+    const response = await fetch(NVIDIA_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`${modeloKey} ${response.status}: ${errorBody.slice(0, 150)}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const texto = data.choices?.[0]?.message?.content?.trim() ?? '';
+    if (texto.length === 0) {
+      throw new Error(`${modeloKey} devolvio respuesta vacia`);
+    }
+
+    return { content: texto, fuente: modeloKey };
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data = await response.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  const texto = data.choices?.[0]?.message?.content?.trim() ?? '';
-  if (texto.length === 0) {
-    throw new Error(`${modeloKey} devolvio respuesta vacia`);
-  }
-
-  return { content: texto, fuente: modeloKey };
 }
 
 async function cascadaLlamar(
@@ -176,23 +175,18 @@ async function cascadaLlamar(
 
 /**
  * Transcribe una imagen (lista de utiles) a texto plano.
- * Cascade: llama-3.2-11b-vision → 90b-vision → nemotron-omni
  */
 export async function transcribirOCR(
   imagenBase64: string,
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/png'
 ): Promise<OCRResult> {
-  const prompt = `Eres un transcriptor de listas de utiles escolares.
-
-Tarea: extraer el texto literal de la imagen, item por item.
+  const prompt = `Eres un transcriptor de listas de útiles escolares.
+Tarea: Analiza la foto y extrae todos los útiles escolares que aparecen en ella.
 
 REGLAS:
-- Una linea por item
-- Sin numeracion, sin precios, sin categorias
-- Si no se lee, omitelo
-- Si es claramente "lapiz", escribe "lapiz"
-
-Devuelve SOLO el texto, una linea por item. Sin explicacion.`;
+- Una sola línea por cada útil escolar (ej. "1 cuaderno de cuadros", "3 lápices HB", "1 borrador blanco")
+- Sin numeración de incisos, sin precios, sin categorías
+- Devuelve ÚNICAMENTE la lista de útiles, sin introducciones ni explicaciones.`;
 
   const body = {
     messages: [
@@ -211,36 +205,32 @@ Devuelve SOLO el texto, una linea por item. Sin explicacion.`;
   };
 
   const { content, fuente } = await cascadaLlamar(true, body);
-  const lineas = content.split('\n').filter(l => l.trim().length > 0).length;
+  const lineas = content.split('\n').filter((l) => l.trim().length > 0).length;
   const confianza = lineas >= 1 ? 'alta' : 'baja';
   return { texto: content, confianza, fuente };
 }
 
 /**
  * Transcribe múltiples imágenes (páginas de una lista escolar) en un SOLO llamado a la IA
- * Evita errores 503 ResourceExhausted por concurrencia y procesa todo en ~4 segundos.
  */
 export async function transcribirMultiplesImagenesOCR(
   imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
 ): Promise<OCRResult> {
   if (imagenes.length === 0) {
-    return { texto: '', confianza: 'baja', fuente: 'NEMOTRON_OMNI' };
+    return { texto: '', confianza: 'baja', fuente: 'LLAMA_VISION' };
   }
 
   if (imagenes.length === 1) {
     return transcribirOCR(imagenes[0].base64, imagenes[0].mimeType || 'image/jpeg');
   }
 
-  const prompt = `Eres un transcriptor de listas de utiles escolares.
-Tarea: Analiza todas las fotos adjuntas (paginas de la lista de utiles) y extrae todos los utiles escolares que aparecen en ellas.
+  const prompt = `Eres un transcriptor de listas de útiles escolares.
+Tarea: Analiza todas las fotos adjuntas (páginas de la lista) y extrae todos los útiles escolares que aparecen en ellas.
 
 REGLAS:
-- Una linea por cada util escolar
-- Sin numeracion, sin precios, sin categorias
-- Si no se lee un item, omitelo
-- Consolida todos los items de todas las fotos en una sola lista
-
-Devuelve SOLO la lista de utiles, una linea por item. Sin explicaciones ni introduccion.`;
+- Una línea por cada útil escolar (ej. "1 cuaderno de cuadros", "3 lápices HB", "1 tijera escolar")
+- Consolida todos los útiles de todas las fotos en una sola lista continua
+- Devuelve ÚNICAMENTE la lista de útiles, sin explicaciones ni introducciones.`;
 
   const contentArray: any[] = [{ type: 'text', text: prompt }];
   for (const img of imagenes) {
@@ -258,20 +248,19 @@ Devuelve SOLO la lista de utiles, una linea por item. Sin explicaciones ni intro
   };
 
   const { content, fuente } = await cascadaLlamar(true, body);
-  const lineas = content.split('\n').filter(l => l.trim().length > 0).length;
+  const lineas = content.split('\n').filter((l) => l.trim().length > 0).length;
   const confianza = lineas >= 1 ? 'alta' : 'baja';
   return { texto: content, confianza, fuente };
 }
 
 /**
  * Interpreta texto libre del cliente y devuelve items estructurados.
- * Cascade: llama-3.1-8b → 70b → 3.3-70b → mistral-nemotron → nemotron-ultra
  */
 export async function interpretarTexto(
   textoLibre: string,
   inventarioDisponible: string[]
 ): Promise<LLMResult> {
-  const catalogoTexto = inventarioDisponible.map(n => `- ${n}`).join('\n');
+  const catalogoTexto = inventarioDisponible.map((n) => `- ${n}`).join('\n');
 
   const prompt = `Eres un parser de pedidos. Tu trabajo es extraer items de un texto.
 
@@ -304,27 +293,11 @@ Ejemplo:
 
   const { content, fuente } = await cascadaLlamar(false, body);
 
-  // Post-procesador defensivo: extrae solo lineas con formato "N|texto"
-  const textoLimpio = extraerLineasItem(content);
-  return { texto: textoLimpio, fuente };
-}
+  const lineasValidas = content
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /^\d+\|.+$/.test(l))
+    .join('\n');
 
-/**
- * Extrae solo las lineas validas "cantidad|nombre" del output.
- * Necesario porque algunos modelos (nemotron-ultra, mistral-nemotron)
- * pueden devolver explicaciones mezcladas con la respuesta.
- */
-function extraerLineasItem(texto: string): string {
-  const items: string[] = [];
-  for (const linea of texto.split('\n')) {
-    const t = linea.trim();
-    if (!t) continue;
-    const match = t.match(/^(\d+)\s*\|\s*(.+)$/);
-    if (match) {
-      items.push(`${match[1]}|${match[2].trim()}`);
-    }
-  }
-  // Si no encontramos NINGUNA linea con formato, devolvemos el texto crudo
-  // (mejor eso que nada) y el orchestrator lo mandara a revision humana
-  return items.length > 0 ? items.join('\n') : texto.trim();
+  return { texto: lineasValidas || content, fuente };
 }
