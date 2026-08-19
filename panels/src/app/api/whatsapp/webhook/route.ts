@@ -59,15 +59,31 @@ export async function POST(req: NextRequest) {
 
     const nombreLibreria = tenantObj?.nombre || 'Librería';
     const textoLimpio = (datos.texto || '').trim();
+    const tieneImagen = Boolean(datos.imagenBase64);
 
-    // 1. Detectar si es un saludo inicial (QR o mensaje de bienvenida)
-    const esSaludo =
-      !datos.imagenBase64 &&
-      (textoLimpio.length < 6 ||
-        /^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|saludos|quiero cotizar)/i.test(textoLimpio) ||
-        textoLimpio.toLowerCase().includes('quiero cotizar mi lista'));
+    // 1. Detectar si el mensaje es del flujo QR de cotización
+    const esMensajeQR =
+      /quiero cotizar|cotizar mi lista|lista de [úu]tiles|[úu]tiles escolares|cotizaci[oó]n|lista escolar|proforma/i.test(
+        textoLimpio
+      );
 
-    if (esSaludo) {
+    // 2. Detectar si el texto parece una lista de útiles (contiene palabras clave de papelería o múltiples líneas)
+    const esListaUtilesTexto =
+      !tieneImagen &&
+      textoLimpio.length > 5 &&
+      (/\b(cuaderno|lapiz|lápiz|borrador|carpeta|regla|goma|tijera|cartulina|marcador|pintura|hoja|papel|sacapuntas|crayon|resaltador|esfero|boligrafo|pluma|pincel|tempera|fomix|plastilina|escuadra|compas|compás)\b/i.test(
+        textoLimpio
+      ) ||
+        (textoLimpio.split('\n').length >= 2 && /\d/.test(textoLimpio)));
+
+    // Si NO es mensaje QR, NI tiene imagen/PDF, NI es lista de útiles en texto -> IGNORAR (chat personal)
+    if (!esMensajeQR && !tieneImagen && !esListaUtilesTexto) {
+      console.log(`[Webhook WhatsApp] Mensaje personal/no relacionado ignorado: "${textoLimpio.substring(0, 30)}"`);
+      return NextResponse.json({ ok: true, ignored: true, reason: 'no es flujo qr ni lista escolar' });
+    }
+
+    // 3. Saludo / Bienvenida inicial del QR
+    if (esMensajeQR && !tieneImagen && !esListaUtilesTexto) {
       const bienvenida = `¡Hola! 👋 Bienvenido/a a *${nombreLibreria}* 📚✏️\n\nPor favor envíanos la *foto de tu lista escolar* 📸 (puedes enviar una o varias fotos), el archivo *PDF* 📄, o escribe los útiles que necesitas aquí en texto.\n\nTe calcularemos el presupuesto exacto al instante con nuestro inventario en stock.`;
 
       await enviarMensaje(datos.instanceName, {
@@ -78,7 +94,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, tipo: 'saludo_bienvenida' });
     }
 
-    // 2. Procesar lista de útiles (imagen o texto)
+    // 4. Procesar lista de útiles (imagen o texto)
     try {
       const resultado = await procesarListaCliente({
         tenantId: tenantIdReal,
