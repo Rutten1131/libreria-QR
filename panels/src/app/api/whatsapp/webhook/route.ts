@@ -11,6 +11,25 @@ import {
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
+// Cache de deduplicación de mensajes procesados recientemente (evita duplicados si Evolution reintenta)
+const mensajesProcesados = new Map<string, number>();
+
+function esMensajeDuplicado(messageId?: string): boolean {
+  if (!messageId) return false;
+  const ahora = Date.now();
+  // Limpiar mensajes con más de 60 segundos
+  for (const [id, ts] of mensajesProcesados.entries()) {
+    if (ahora - ts > 60000) {
+      mensajesProcesados.delete(id);
+    }
+  }
+  if (mensajesProcesados.has(messageId)) {
+    return true;
+  }
+  mensajesProcesados.set(messageId, ahora);
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const payload = await req.json();
@@ -27,6 +46,12 @@ export async function POST(req: NextRequest) {
     if (!datos || (!datos.texto && !datos.imagenBase64)) {
       console.log(`[Webhook] Evento ignorado: event=${event} datos=${datos ? 'parsed-but-empty' : 'null'}`);
       return NextResponse.json({ ok: true, ignored: true });
+    }
+
+    // Deduplicación por messageId
+    if (datos.messageId && esMensajeDuplicado(datos.messageId)) {
+      console.log(`[Webhook] Mensaje duplicado ignorado (retry Evolution): messageId=${datos.messageId}`);
+      return NextResponse.json({ ok: true, ignored: true, reason: 'mensaje_duplicado' });
     }
 
     console.log(

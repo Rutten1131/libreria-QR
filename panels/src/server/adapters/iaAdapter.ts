@@ -1,35 +1,46 @@
 // Adapter de Inteligencia Artificial para LibreríaQR (Vision OCR + Parsing)
-// Proveedores: NVIDIA NIM (Vision) + Groq (Parsing ultra-rápido)
+// Proveedores: Google Gemini (Vision OCR <2s) + Groq (Parsing ultra-rápido) + NVIDIA NIM (Fallback)
 
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+export type ProveedorIA = 'gemini' | 'groq' | 'nvidia';
 
 export interface ModeloPerfil {
   id: string;
   vision: boolean;
-  proveedor: 'nvidia' | 'groq';
+  proveedor: ProveedorIA;
   descripcion: string;
   temperature: number;
   timeoutMs: number;
 }
 
 const MODELOS: Record<string, ModeloPerfil> = {
-  // === OCR / Vision ===
+  // === OCR / Vision (Google Gemini = Ultra-rápido ~1-3s) ===
+  GEMINI_FLASH_LITE: {
+    id: 'gemini-3.5-flash-lite',
+    vision: true,
+    proveedor: 'gemini',
+    descripcion: 'Google Gemini 3.5 Flash Lite — OCR ultra-rápido (<2s).',
+    temperature: 0.1,
+    timeoutMs: 12000,
+  },
+  GEMINI_FLASH: {
+    id: 'gemini-3.5-flash',
+    vision: true,
+    proveedor: 'gemini',
+    descripcion: 'Google Gemini 3.5 Flash — OCR de alta precisión.',
+    temperature: 0.1,
+    timeoutMs: 15000,
+  },
   LLAMA_VISION: {
     id: 'meta/llama-3.2-11b-vision-instruct',
     vision: true,
     proveedor: 'nvidia',
-    descripcion: 'NVIDIA Llama 3.2 11B Vision — Transcripción OCR de alta precisión.',
+    descripcion: 'NVIDIA Llama 3.2 11B Vision (fallback).',
     temperature: 0.01,
-    timeoutMs: 25000,
-  },
-  NEMOTRON_OMNI: {
-    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
-    vision: true,
-    proveedor: 'nvidia',
-    descripcion: 'NVIDIA Nemotron Omni Vision (fallback).',
-    temperature: 0.01,
-    timeoutMs: 25000,
+    timeoutMs: 15000,
   },
 
   // === Chat / Parser de Texto ===
@@ -39,7 +50,15 @@ const MODELOS: Record<string, ModeloPerfil> = {
     proveedor: 'groq',
     descripcion: 'Groq GPT-OSS 120B — Parser de texto ultra-rápido (<1s).',
     temperature: 0.01,
-    timeoutMs: 15000,
+    timeoutMs: 10000,
+  },
+  GEMINI_TEXT: {
+    id: 'gemini-3.5-flash-lite',
+    vision: false,
+    proveedor: 'gemini',
+    descripcion: 'Google Gemini 3.5 Flash Lite (fallback de texto).',
+    temperature: 0.01,
+    timeoutMs: 10000,
   },
   NVIDIA_LLAMA_TEXT: {
     id: 'meta/llama-3.1-70b-instruct',
@@ -47,13 +66,13 @@ const MODELOS: Record<string, ModeloPerfil> = {
     proveedor: 'nvidia',
     descripcion: 'NVIDIA Llama 3.1 70B Instruct (fallback de texto).',
     temperature: 0.01,
-    timeoutMs: 20000,
+    timeoutMs: 15000,
   },
 };
 
-// === Orden de cascade ===
-const CASCADE_VISION = ['LLAMA_VISION', 'NEMOTRON_OMNI'];
-const CASCADE_TEXT = ['GROQ_TEXT', 'NVIDIA_LLAMA_TEXT'];
+// === Orden de cascada ===
+const CASCADE_VISION = ['GEMINI_FLASH_LITE', 'GEMINI_FLASH', 'LLAMA_VISION'];
+const CASCADE_TEXT = ['GROQ_TEXT', 'GEMINI_TEXT', 'NVIDIA_LLAMA_TEXT'];
 
 export type Fuente = keyof typeof MODELOS;
 
@@ -68,7 +87,12 @@ export interface LLMResult {
   fuente: Fuente;
 }
 
-function getApiKey(proveedor: 'nvidia' | 'groq'): string {
+function getApiKey(proveedor: ProveedorIA): string {
+  if (proveedor === 'gemini') {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) throw new Error('GEMINI_API_KEY no esta en .env');
+    return key;
+  }
   if (proveedor === 'groq') {
     const key = process.env.GROQ_API_KEY;
     if (!key) throw new Error('GROQ_API_KEY no esta en .env');
@@ -77,10 +101,6 @@ function getApiKey(proveedor: 'nvidia' | 'groq'): string {
   const key = process.env.NVIDIA_API_KEY;
   if (!key) throw new Error('NVIDIA_API_KEY no esta en .env');
   return key;
-}
-
-function getApiUrl(proveedor: 'nvidia' | 'groq'): string {
-  return proveedor === 'groq' ? GROQ_API_URL : NVIDIA_API_URL;
 }
 
 async function backoffRetry<T>(
@@ -101,7 +121,7 @@ async function backoffRetry<T>(
         throw err;
       }
       if (intento < maxReintentos) {
-        const espera = 400 * Math.pow(2, intento);
+        const espera = 300 * Math.pow(2, intento);
         console.warn(`[iaAdapter] ${label} reintento tras ${espera}ms — ${msg.slice(0, 100)}`);
         await new Promise((r) => setTimeout(r, espera));
       }
@@ -110,13 +130,84 @@ async function backoffRetry<T>(
   throw lastError;
 }
 
-async function llamarModelo(
+async function llamarGemini(
+  modeloKey: keyof typeof MODELOS,
+  prompt: string,
+  imagenes?: Array<{ base64: string; mimeType: string }>
+): Promise<{ content: string; fuente: Fuente }> {
+  const modelo = MODELOS[modeloKey];
+  const apiKey = getApiKey('gemini');
+  const url = `${GEMINI_API_BASE}/${modelo.id}:generateContent?key=${apiKey}`;
+
+  const parts: any[] = [{ text: prompt }];
+
+  if (imagenes && imagenes.length > 0) {
+    for (const img of imagenes) {
+      const cleanB64 = img.base64.includes(',') ? img.base64.split(',')[1] : img.base64;
+      parts.push({
+        inline_data: {
+          mime_type: img.mimeType || 'image/jpeg',
+          data: cleanB64,
+        },
+      });
+    }
+  }
+
+  const payload = {
+    contents: [{ parts }],
+    generationConfig: {
+      temperature: modelo.temperature,
+      maxOutputTokens: 1024,
+    },
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), modelo.timeoutMs);
+
+  try {
+    const inicio = Date.now();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Gemini ${response.status}: ${errText.slice(0, 150)}`);
+    }
+
+    const data = await response.json();
+    const rawTexto =
+      data.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p.text || '')
+        .filter(Boolean)
+        .join('\n')
+        .trim() || '';
+
+    const texto = rawTexto.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    if (!texto) {
+      throw new Error(`${modeloKey} devolvio respuesta vacia`);
+    }
+
+    const duracion = Date.now() - inicio;
+    console.log(`[iaAdapter] ${modeloKey} respondio en ${duracion}ms (${texto.length} chars)`);
+
+    return { content: texto, fuente: modeloKey };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function llamarOpenAICompatible(
   modeloKey: keyof typeof MODELOS,
   body: any
 ): Promise<{ content: string; fuente: Fuente }> {
   const modelo = MODELOS[modeloKey];
   const apiKey = getApiKey(modelo.proveedor);
-  const apiUrl = getApiUrl(modelo.proveedor);
+  const apiUrl = modelo.proveedor === 'groq' ? GROQ_API_URL : NVIDIA_API_URL;
 
   const payload = {
     ...body,
@@ -149,7 +240,6 @@ async function llamarModelo(
     };
 
     const rawTexto = data.choices?.[0]?.message?.content?.trim() ?? '';
-    // Limpiar posibles etiquetas de razonamiento como <think>...</think>
     const texto = rawTexto.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
     if (texto.length === 0) {
@@ -165,69 +255,14 @@ async function llamarModelo(
   }
 }
 
-async function cascadaLlamar(
-  esVision: boolean,
-  body: any
-): Promise<{ content: string; fuente: Fuente }> {
-  const orden = esVision ? CASCADE_VISION : CASCADE_TEXT;
-  let ultimoError: unknown;
-
-  for (const modeloKey of orden) {
-    const label = `${modeloKey}-${esVision ? 'vision' : 'text'}`;
-    try {
-      const resultado = await backoffRetry(
-        () => llamarModelo(modeloKey as keyof typeof MODELOS, body),
-        label
-      );
-      if (modeloKey !== orden[0]) {
-        console.warn(`[iaAdapter] fallback a ${modeloKey} funciono tras ${orden[0]} fallar`);
-      }
-      return { content: resultado.content, fuente: resultado.fuente };
-    } catch (err: any) {
-      ultimoError = err;
-      const msg = String(err?.message ?? err).slice(0, 150);
-      console.warn(`[iaAdapter] ${modeloKey} fallo: ${msg}`);
-    }
-  }
-  const msg = ultimoError instanceof Error ? ultimoError.message : String(ultimoError);
-  throw new Error(`Todos los modelos fallaron. Ultimo: ${msg.slice(0, 200)}`);
-}
-
 /**
  * Transcribe una imagen (lista de utiles) a texto plano.
  */
 export async function transcribirOCR(
   imagenBase64: string,
-  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/png'
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg'
 ): Promise<OCRResult> {
-  const prompt = `Eres un transcriptor de listas de útiles escolares.
-Tarea: Analiza la foto y extrae todos los útiles escolares que aparecen en ella.
-
-REGLAS:
-- Una sola línea por cada útil escolar (ej. "1 cuaderno de cuadros", "3 lápices HB", "1 borrador blanco")
-- Sin numeración de incisos, sin precios, sin categorías
-- Devuelve ÚNICAMENTE la lista de útiles, sin introducciones ni explicaciones.`;
-
-  const body = {
-    messages: [
-      {
-        role: 'user' as const,
-        content: [
-          { type: 'text' as const, text: prompt },
-          {
-            type: 'image_url' as const,
-            image_url: { url: `data:${mimeType};base64,${imagenBase64}` },
-          },
-        ],
-      },
-    ],
-    max_tokens: 1024,
-  };
-
-  const { content, fuente } = await cascadaLlamar(true, body);
-  const lineas = content.split('\n').filter((l) => l.trim().length > 0).length;
-  const confianza = lineas >= 1 ? 'alta' : 'baja';
-  return { texto: content, confianza, fuente };
+  return transcribirMultiplesImagenesOCR([{ base64: imagenBase64, mimeType }]);
 }
 
 /**
@@ -237,32 +272,72 @@ export async function transcribirMultiplesImagenesOCR(
   imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
 ): Promise<OCRResult> {
   if (imagenes.length === 0) {
-    return { texto: '', confianza: 'baja', fuente: 'LLAMA_VISION' };
+    return { texto: '', confianza: 'baja', fuente: 'GEMINI_FLASH_LITE' };
   }
 
-  const todasLasLineas: string[] = [];
-  let ultimaFuente: Fuente = 'LLAMA_VISION';
+  const prompt = `Eres un transcriptor experto de listas de útiles escolares.
+Tarea: Analiza la foto o imágenes y extrae todos los útiles escolares que aparecen en ella.
 
-  for (const img of imagenes) {
+REGLAS ESTRICTAS:
+- Una sola línea por cada útil escolar (ej. "1 cuaderno de cuadros", "3 lápices HB", "1 borrador blanco")
+- Sin numeración de incisos, sin precios, sin categorías
+- Devuelve ÚNICAMENTE la lista de útiles, sin introducciones ni explicaciones.`;
+
+  let ultimoError: unknown;
+
+  for (const modeloKey of CASCADE_VISION) {
+    const modelo = MODELOS[modeloKey];
+    const label = `${modeloKey}-vision`;
+
     try {
-      const rawBase64 = img.base64.includes(',') ? img.base64.split(',')[1] : img.base64;
-      const res = await transcribirOCR(rawBase64, img.mimeType || 'image/jpeg');
-      if (res?.texto) {
-        todasLasLineas.push(res.texto);
-        ultimaFuente = res.fuente;
-      }
+      const resultado = await backoffRetry(async () => {
+        if (modelo.proveedor === 'gemini') {
+          return await llamarGemini(
+            modeloKey as keyof typeof MODELOS,
+            prompt,
+            imagenes.map((img) => ({
+              base64: img.base64,
+              mimeType: img.mimeType || 'image/jpeg',
+            }))
+          );
+        } else {
+          // NVIDIA / OpenAI vision format
+          const rawB64 = imagenes[0].base64.includes(',')
+            ? imagenes[0].base64.split(',')[1]
+            : imagenes[0].base64;
+          return await llamarOpenAICompatible(modeloKey as keyof typeof MODELOS, {
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  { type: 'text', text: prompt },
+                  {
+                    type: 'image_url',
+                    image_url: { url: `data:${imagenes[0].mimeType || 'image/jpeg'};base64,${rawB64}` },
+                  },
+                ],
+              },
+            ],
+            max_tokens: 1024,
+          });
+        }
+      }, label);
+
+      const lineas = resultado.content.split('\n').filter((l) => l.trim().length > 0).length;
+      return {
+        texto: resultado.content,
+        confianza: lineas >= 1 ? 'alta' : 'baja',
+        fuente: resultado.fuente,
+      };
     } catch (err: any) {
-      console.warn('[transcribirMultiplesImagenesOCR foto error]', err.message);
+      ultimoError = err;
+      const msg = String(err?.message ?? err).slice(0, 150);
+      console.warn(`[iaAdapter] ${modeloKey} fallo: ${msg}`);
     }
   }
 
-  const textoConsolidado = todasLasLineas.join('\n');
-  const totalLineas = textoConsolidado.split('\n').filter((l) => l.trim().length > 0).length;
-  return {
-    texto: textoConsolidado,
-    confianza: totalLineas >= 1 ? 'alta' : 'baja',
-    fuente: ultimaFuente,
-  };
+  const msg = ultimoError instanceof Error ? ultimoError.message : String(ultimoError);
+  throw new Error(`Todos los modelos de visión fallaron. Ultimo: ${msg.slice(0, 200)}`);
 }
 
 /**
@@ -296,12 +371,32 @@ Ejemplo de salida:
 1|Carpeta tipo sobre broche plastico duro
 3|Lapices delgados triplus HB`;
 
-  const body = {
-    messages: [{ role: 'user' as const, content: prompt }],
-    max_tokens: 1024,
-  };
+  let ultimoError: unknown;
 
-  const { content, fuente } = await cascadaLlamar(false, body);
+  for (const modeloKey of CASCADE_TEXT) {
+    const modelo = MODELOS[modeloKey];
+    const label = `${modeloKey}-text`;
 
-  return { texto: content, fuente };
+    try {
+      const resultado = await backoffRetry(async () => {
+        if (modelo.proveedor === 'gemini') {
+          return await llamarGemini(modeloKey as keyof typeof MODELOS, prompt);
+        } else {
+          return await llamarOpenAICompatible(modeloKey as keyof typeof MODELOS, {
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 1024,
+          });
+        }
+      }, label);
+
+      return { texto: resultado.content, fuente: resultado.fuente };
+    } catch (err: any) {
+      ultimoError = err;
+      const msg = String(err?.message ?? err).slice(0, 150);
+      console.warn(`[iaAdapter] ${modeloKey} fallo: ${msg}`);
+    }
+  }
+
+  const msg = ultimoError instanceof Error ? ultimoError.message : String(ultimoError);
+  throw new Error(`Todos los modelos de texto fallaron. Ultimo: ${msg.slice(0, 200)}`);
 }
