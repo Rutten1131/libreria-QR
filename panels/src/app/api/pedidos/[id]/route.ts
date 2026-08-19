@@ -16,7 +16,16 @@ export async function GET(
     if (error || !pedido) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
-    return NextResponse.json(pedido);
+
+    const { data: itemRows } = await sb
+      .from('pedido_items')
+      .select('*')
+      .eq('pedido_id', params.id);
+
+    return NextResponse.json({
+      ...pedido,
+      items: itemRows || [],
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

@@ -80,6 +80,58 @@ export default function PedirWebPage() {
       .finally(() => setLoadingTenant(false));
   }, [tenantId]);
 
+  // Si viene con ?pedido=id, cargar la cotización de ese pedido existente
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const pedidoParam = urlParams.get('pedido');
+    if (!pedidoParam) return;
+
+    fetch(`${API_URL}/api/pedidos/${pedidoParam}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data || data.error) return;
+
+        const itemsDisponibles: ItemCotizado[] = (data.items || []).map((it: any) => ({
+          item: it.nombre,
+          producto_id: it.producto_id,
+          nombre_encontrado: it.nombre,
+          precio_unitario: Number(it.precio_unitario || 0),
+          disponible: true,
+          cantidad: Number(it.cantidad || 1),
+        }));
+
+        const itemsAmbiguos: ItemCotizado[] = (data.items_ambiguos || []).map((amb: string) => ({
+          item: amb,
+          producto_id: null,
+          nombre_encontrado: null,
+          precio_unitario: 0,
+          disponible: false,
+          cantidad: 1,
+        }));
+
+        const todosLosItems = [...itemsDisponibles, ...itemsAmbiguos];
+
+        setCotizacion({
+          items: todosLosItems,
+          total: Number(data.total || 0),
+          totalItems: todosLosItems.length,
+          encontrados: itemsDisponibles.length,
+        });
+
+        setPedidoId(data.id);
+        if (data.cliente_nombre) setClienteNombre(data.cliente_nombre);
+        if (data.cliente_telefono) setClienteTelefono(data.cliente_telefono);
+
+        if (data.estado === 'confirmado' || data.estado === 'despachado') {
+          setPaso('confirmado');
+        } else {
+          setPaso('resumen');
+        }
+      })
+      .catch((e) => console.warn('[Error cargando pedido existente]', e));
+  }, []);
+
   // Manejar selección / toma de fotos y documentos PDF
   const handleFilesAdd = async (newFiles: FileList | File[]) => {
     const arr = Array.from(newFiles);
