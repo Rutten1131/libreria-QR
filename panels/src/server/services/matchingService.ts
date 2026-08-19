@@ -22,7 +22,26 @@ function extraerCantidadDeTexto(texto: string): number {
   return 1;
 }
 
+function desabreviar(palabra: string): string {
+  // Abreviaturas reales de inventario de papelería
+  if (palabra === 'cdrs' || palabra === 'cdros' || palabra === 'cuadro' || palabra === 'cuadros') return 'cuadros';
+  if (palabra === '1l' || palabra === '1linea' || palabra === 'linea' || palabra === 'lineas') return 'lineas';
+  if (palabra === '4l' || palabra === '4lineas') return '4lineas';
+  if (palabra === 'anillada' || palabra === 'anillado' || palabra === 'esp' || palabra === 'espiral') return 'espiral';
+  if (palabra === '100h' || palabra === '100hojas') return '100 hojas';
+  if (palabra === '50h' || palabra === '50hojas') return '50 hojas';
+  if (palabra === '200h' || palabra === '200hojas') return '200 hojas';
+  if (palabra === 'c/separador') return 'separador';
+  if (palabra === 'p/pincho' || palabra === 'pincho' || palabra === 'pinchos') return 'pincho';
+  if (palabra === 'p/balsa' || palabra === 'balsa') return 'balsa';
+  if (palabra === 'plast' || palabra === 'plastico' || palabra === 'plastica') return 'plastico';
+  return palabra;
+}
+
 function lematizar(palabra: string): string {
+  const desab = desabreviar(palabra);
+  if (desab !== palabra) return desab;
+
   if (palabra.endsWith('ces') && palabra.length > 4) return palabra.slice(0, -3) + 'z'; // lapices -> lapiz
   if (palabra.endsWith('es') && palabra.length > 4 && !palabra.endsWith('les')) return palabra.slice(0, -2);
   if (palabra.endsWith('s') && palabra.length > 3 && !palabra.endsWith('as') && !palabra.endsWith('is')) return palabra.slice(0, -1);
@@ -33,6 +52,8 @@ function lematizar(palabra: string): string {
   if (palabra === 'borradores') return 'borrador';
   if (palabra === 'tijeras') return 'tijera';
   if (palabra === 'gomas' || palabra === 'pega') return 'goma';
+  if (palabra === 'palillos' || palabra === 'palitos') return 'palillo';
+  if (palabra === 'agendas') return 'agenda';
   return palabra;
 }
 
@@ -41,6 +62,9 @@ function normalizar(texto: string): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/c\/separador/g, ' con separador ')
+    .replace(/p\/pincho/g, ' pincho ')
+    .replace(/p\/balsa/g, ' balsa ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -58,7 +82,7 @@ const STOPWORDS = new Set([
 const NOUNS = [
   'cuaderno', 'lapiz', 'borrador', 'tijera', 'sacapuntas',
   'goma', 'resma', 'pintura', 'carpeta', 'regla', 'compas',
-  'corrector', 'juego', 'marcador'
+  'corrector', 'juego', 'marcador', 'palillo', 'agenda', 'fomix', 'plastilina'
 ];
 
 /**

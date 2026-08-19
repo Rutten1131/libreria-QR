@@ -21,14 +21,37 @@ export async function getInventarioAsync(tenantIdOrPhone: string): Promise<Produ
     targetTenantId = tenantData.id;
   }
 
-  const { data, error } = await sb
-    .from('productos')
-    .select('id, tenant_id, nombre, familia, precio, stock_cantidad')
-    .eq('tenant_id', targetTenantId);
-  if (error) throw new Error(`getInventario: ${error.message}`);
-  return (data ?? []).map((r: any) => ({
+  // Paginación por bloques de 1000 para catálogos masivos (PostgREST límite por petición es 1000)
+  const todosLosProductos: any[] = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await sb
+      .from('productos')
+      .select('id, tenant_id, categoria, familia, codigo_sku, nombre, precio, stock_cantidad')
+      .eq('tenant_id', targetTenantId)
+      .range(from, from + PAGE_SIZE - 1)
+      .order('nombre');
+
+    if (error) throw new Error(`getInventario: ${error.message}`);
+    if (data && data.length > 0) {
+      todosLosProductos.push(...data);
+      if (data.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        from += PAGE_SIZE;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return todosLosProductos.map((r: any) => ({
     id: r.id,
     tenantId: r.tenant_id,
+    categoria: r.categoria || 'general',
     nombre: r.nombre,
     familia: r.familia,
     precio: Number(r.precio),

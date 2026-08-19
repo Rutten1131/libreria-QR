@@ -22,20 +22,41 @@ export async function GET(
     const sb = getSupabase();
     const tenantId = await resolveTenantId(rawId);
 
-    const { data, error } = await sb
-      .from('productos')
-      .select('id, tenant_id, nombre, familia, precio, stock_cantidad')
-      .or(`tenant_id.eq.${tenantId},tenant_id.eq.${rawId}`)
-      .order('nombre');
+    const todosLosProductos: any[] = [];
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    let hasMore = true;
 
-    if (error) {
-      console.error('[API inventario error]', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    while (hasMore) {
+      const { data, error } = await sb
+        .from('productos')
+        .select('id, tenant_id, categoria, familia, codigo_sku, nombre, precio, stock_cantidad')
+        .or(`tenant_id.eq.${tenantId},tenant_id.eq.${rawId}`)
+        .range(from, from + PAGE_SIZE - 1)
+        .order('nombre');
+
+      if (error) {
+        console.error('[API inventario error]', error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      if (data && data.length > 0) {
+        todosLosProductos.push(...data);
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    const productos = (data || []).map((r: any) => ({
+    const productos = todosLosProductos.map((r: any) => ({
       id: r.id,
       tenantId: r.tenant_id,
+      categoria: r.categoria || 'general',
+      codigo_sku: r.codigo_sku,
       nombre: r.nombre,
       familia: r.familia || 'general',
       precio: Number(r.precio || 0),

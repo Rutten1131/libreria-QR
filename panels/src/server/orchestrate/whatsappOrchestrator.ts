@@ -23,6 +23,7 @@ import { getInventarioAsync } from '../adapters/inventarioAdapter';
 import { cotizar } from '../services/matchingService';
 import { Cotizacion, Pedido } from '../domain/entities';
 import { crearPedido } from '../services/pedidoService';
+import { detectarAmbiguedad } from '../services/variantService';
 
 export interface EntradaCliente {
   tenantId: string;
@@ -191,5 +192,68 @@ export async function procesarListaCliente(
     cotizacion,
     pedido,
     advertencia: advertencia ?? undefined,
+  };
+}
+
+/**
+ * Procesa mensajes de texto del cliente buscando si hay ambigüedades en pedidos cortos (1-2 útiles).
+ * Si hay variantes que necesitan aclaración, devuelve la pregunta con las opciones reales en stock.
+ */
+export async function procesarTextoConversacional(
+  tenantId: string,
+  textoCliente: string,
+  clienteNombre: string,
+  clienteTelefono: string
+): Promise<
+  | { tipo: 'pregunta_variante'; textoPregunta: string }
+  | { tipo: 'cotizacion'; resultado: ResultadoOrquestacion }
+> {
+  const inventario = await getInventarioAsync(tenantId);
+  const nombresInventario = inventario.map((p) => p.nombre);
+
+  let itemsParseados: Array<{ cantidad: number; nombre: string }> = [];
+  try {
+    const parseo = await interpretarTexto(textoCliente, nombresInventario);
+    itemsParseados = parsearLineasGroq(parseo.texto, textoCliente);
+  } catch {
+    itemsParseados = parsearLineasGroq('', textoCliente);
+  }
+
+  if (itemsParseados.length === 0) {
+    itemsParseados = parsearLineasGroq('', textoCliente);
+  }
+
+  // Si son 1 o 2 ítems, verificar si alguno tiene ambigüedad y requiere aclaración
+  if (itemsParseados.length >= 1 && itemsParseados.length <= 2) {
+    for (const item of itemsParseados) {
+      const itemNorm = item.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const tokens = itemNorm.split(' ').filter((t) => t.length > 2);
+
+      const candidatos = inventario.filter((p) => {
+        const pNorm = p.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return tokens.some((t) => pNorm.includes(t));
+      });
+
+      const resAmb = detectarAmbiguedad(item.nombre, candidatos);
+      if (resAmb.esAmbiguo && resAmb.preguntaSugerida) {
+        return {
+          tipo: 'pregunta_variante',
+          textoPregunta: `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o si deseas agregar algún otro útil escolar._`,
+        };
+      }
+    }
+  }
+
+  // Si no hay ambigüedades o es una lista más larga, cotizar normalmente
+  const resultado = await procesarListaCliente({
+    tenantId,
+    clienteNombre,
+    clienteTelefono,
+    textoOriginal: textoCliente,
+  });
+
+  return {
+    tipo: 'cotizacion',
+    resultado,
   };
 }
