@@ -190,6 +190,9 @@ export default function TenantWhatsappPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al guardar el teléfono');
+      if (data.tenant?.telefono) {
+        setTelefonoAsesor(data.tenant.telefono);
+      }
       setSuccess('¡Teléfono del asesor guardado con éxito! Recibirá un mensaje automático cada vez que un cliente confirme un pedido.');
     } catch (err: any) {
       setError(err.message || 'No se pudo guardar el número del asesor');

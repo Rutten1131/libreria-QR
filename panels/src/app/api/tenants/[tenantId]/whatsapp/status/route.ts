@@ -71,11 +71,6 @@ export async function GET(
             updated_at: new Date().toISOString(),
           })
           .eq('tenant_id', tw.tenant_id);
-
-        await sb
-          .from('tenants')
-          .update({ telefono: numeroReal })
-          .eq('id', tw.tenant_id);
       } catch {}
     }
 

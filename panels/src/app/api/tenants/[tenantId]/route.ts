@@ -32,13 +32,26 @@ export async function PATCH(
   { params }: { params: { tenantId: string } }
 ) {
   try {
-    const tenantId = params.tenantId.toLowerCase().trim();
+    const rawParam = params.tenantId.toLowerCase().trim();
     const body = await req.json();
     const { telefono, nombre, direccion } = body;
 
     const sb = getSupabase();
 
-    const updates: any = {};
+    // 1. Primero resolver el tenant exacto en la base de datos
+    const { data: tenantExistente } = await sb
+      .from('tenants')
+      .select('id, nombre, telefono, direccion')
+      .or(`id.eq.${rawParam},telefono.eq.${rawParam}`)
+      .maybeSingle();
+
+    if (!tenantExistente) {
+      return NextResponse.json({ error: 'Tenant no encontrado' }, { status: 404 });
+    }
+
+    const updates: any = {
+      updated_at: new Date().toISOString(),
+    };
     if (telefono !== undefined) {
       // Limpiar formato del teléfono (solo dígitos)
       updates.telefono = String(telefono).replace(/\D/g, '');
@@ -49,9 +62,9 @@ export async function PATCH(
     const { data: updated, error } = await sb
       .from('tenants')
       .update(updates)
-      .or(`id.eq.${tenantId},telefono.eq.${tenantId}`)
+      .eq('id', tenantExistente.id)
       .select('id, nombre, telefono, direccion')
-      .maybeSingle();
+      .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
