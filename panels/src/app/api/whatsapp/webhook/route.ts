@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     try {
       const resultado = await procesarListaCliente({
         tenantId: tenantIdReal,
-        clienteNombre: 'Cliente WhatsApp',
+        clienteNombre: datos.pushName || 'Cliente WhatsApp',
         clienteTelefono: datos.numero,
         textoOriginal: datos.texto,
         imagenBase64: datos.imagenBase64,

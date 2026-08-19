@@ -277,6 +277,7 @@ export async function eliminarInstancia(instanceName: string): Promise<void> {
 export function validarWebhookEvolution(payload: any): {
   instanceName: string;
   numero: string;
+  pushName?: string;
   texto?: string;
   imagenBase64?: string;
   mimeType?: 'image/jpeg' | 'image/png' | 'image/webp';
@@ -348,9 +349,18 @@ export function validarWebhookEvolution(payload: any): {
     return null;
   }
 
+  // --- Extraer nombre del remitente (pushName de WhatsApp) ---
+  const pushName =
+    payload?.data?.pushName ||
+    payload?.pushName ||
+    payload?.data?.verifiedName ||
+    payload?.verifiedName ||
+    undefined;
+
   return {
     instanceName: instance,
     numero,
+    pushName: pushName ? String(pushName).trim() : undefined,
     texto: texto ? String(texto).trim() : undefined,
     imagenBase64: imagenBase64 ? String(imagenBase64) : undefined,
     mimeType,

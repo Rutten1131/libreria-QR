@@ -427,6 +427,157 @@ export default function PedirWebPage() {
     }
   };
 
+  // Generar y descargar proforma PDF con datos dinámicos del negocio y pedido
+  const descargarPdfProforma = () => {
+    if (!cotizacion) return;
+
+    const fechaHoy = new Date().toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const itemsDisponibles = cotizacion.items.filter((i) => i.disponible);
+    const itemsFaltantes = cotizacion.items.filter((i) => !i.disponible);
+
+    const filasHtml = itemsDisponibles
+      .map(
+        (it, idx) => `
+      <tr>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #475569; font-size: 12px;">${idx + 1}</td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">
+          ${it.nombre_encontrado || it.item}
+        </td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 700; color: #0f172a;">${it.cantidad || 1}</td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #475569;">$${it.precio_unitario.toFixed(2)}</td>
+        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: #0f172a;">$${((it.cantidad || 1) * it.precio_unitario).toFixed(2)}</td>
+      </tr>
+    `
+      )
+      .join('');
+
+    const faltantesHtml =
+      itemsFaltantes.length > 0
+        ? `
+      <div style="margin-top: 24px; padding: 14px 18px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px;">
+        <h4 style="margin: 0 0 8px 0; color: #b45309; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">⚠️ Artículos no disponibles en stock (${itemsFaltantes.length})</h4>
+        <ul style="margin: 0; padding-left: 18px; color: #78350f; font-size: 12px; line-height: 1.6;">
+          ${itemsFaltantes.map((f) => `<li>${f.item}</li>`).join('')}
+        </ul>
+      </div>
+    `
+        : '';
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Proforma Oficial - ${nombreLibreria}</title>
+        <style>
+          @page { size: A4; margin: 15mm; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; padding: 25px; font-size: 13px; line-height: 1.4; background: #fff; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 20px; }
+          .brand-title { font-size: 26px; font-weight: 800; color: #0f172a; margin: 0; text-transform: uppercase; letter-spacing: -0.5px; }
+          .brand-sub { font-size: 13px; color: #64748b; margin: 3px 0 0 0; }
+          .order-meta { text-align: right; }
+          .badge { display: inline-block; background: #0f172a; color: #fff; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; letter-spacing: 0.5px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8fafc; padding: 14px 18px; border-radius: 8px; margin-bottom: 22px; border: 1px solid #e2e8f0; }
+          .info-box strong { display: block; font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 3px; letter-spacing: 0.5px; }
+          .info-box span { font-size: 14px; font-weight: 600; color: #1e293b; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th { background: #f1f5f9; padding: 10px 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1; letter-spacing: 0.5px; }
+          .totals-wrap { margin-top: 24px; display: flex; justify-content: flex-end; }
+          .totals-table { width: 320px; }
+          .totals-table td { padding: 8px 10px; }
+          .total-row td { border-top: 2px solid #0f172a; font-size: 18px; font-weight: 800; color: #0f172a; }
+          .footer { margin-top: 45px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 18px; font-size: 11px; color: #94a3b8; }
+          @media print {
+            body { padding: 0; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="brand-title">${nombreLibreria}</h1>
+            <p class="brand-sub">Proforma Oficial de Cotización de Útiles Escolares</p>
+            ${tenant?.telefono ? `<p style="margin: 3px 0 0 0; color: #475569; font-size: 12px;">📱 WhatsApp: +${tenant.telefono}</p>` : ''}
+            ${tenant?.direccion ? `<p style="margin: 2px 0 0 0; color: #475569; font-size: 12px;">📍 ${tenant.direccion}</p>` : ''}
+          </div>
+          <div class="order-meta">
+            <span class="badge">PROFORMA DE COMPRA</span>
+            <p style="margin: 6px 0 0 0; font-weight: 700; font-size: 14px;">#${pedidoId ? pedidoId.slice(-8).toUpperCase() : 'COTIZACION'}</p>
+            <p style="margin: 2px 0 0 0; color: #64748b; font-size: 11px;">${fechaHoy}</p>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-box">
+            <strong>Cliente / Solicitante:</strong>
+            <span>${clienteNombre || 'Cliente WhatsApp'}</span>
+          </div>
+          <div class="info-box" style="text-align: right;">
+            <strong>Contacto / WhatsApp:</strong>
+            <span>${clienteTelefono || 'WhatsApp'}</span>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 35px; text-align: center;">#</th>
+              <th>Descripción del Material / Útil</th>
+              <th style="width: 60px; text-align: center;">Cant.</th>
+              <th style="width: 90px; text-align: right;">P. Unit</th>
+              <th style="width: 90px; text-align: right;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filasHtml}
+          </tbody>
+        </table>
+
+        ${faltantesHtml}
+
+        <div class="totals-wrap">
+          <table class="totals-table">
+            <tr>
+              <td style="color: #64748b;">Útiles disponibles:</td>
+              <td style="text-align: right; font-weight: 600;">${cotizacion.encontrados} de ${cotizacion.totalItems}</td>
+            </tr>
+            <tr class="total-row">
+              <td>TOTAL ESTIMADO:</td>
+              <td style="text-align: right;">$${cotizacion.total.toFixed(2)}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="footer">
+          <p style="margin: 0;">Esta proforma tiene una validez de 5 días sujeta a disponibilidad física de inventario en local.</p>
+          <p style="margin: 4px 0 0 0;">Generado automáticamente por el Sistema de Cotizaciones de <strong>${nombreLibreria}</strong></p>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() { window.print(); }, 200);
+          }
+        </script>
+      </body>
+      </html>
+    `;
+
+    const printWin = window.open('', '_blank');
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(htmlContent);
+      printWin.document.close();
+    }
+  };
+
   if (loadingTenant) {
     return (
       <div className="lqr-web-portal-loading">
@@ -632,9 +783,19 @@ export default function PedirWebPage() {
                     {cotizacion.encontrados} de {cotizacion.totalItems} útiles disponibles
                   </span>
                 </div>
-                <div className="lqr-summary-total-badge">
-                  <span>Total a pagar:</span>
-                  <strong>${cotizacion.total.toFixed(2)}</strong>
+                <div className="lqr-summary-actions-zone">
+                  <button
+                    type="button"
+                    className="lqr-btn-pdf-header"
+                    onClick={descargarPdfProforma}
+                    title="Descargar proforma en PDF"
+                  >
+                    📄 Descargar PDF
+                  </button>
+                  <div className="lqr-summary-total-badge">
+                    <span>Total a pagar:</span>
+                    <strong>${cotizacion.total.toFixed(2)}</strong>
+                  </div>
                 </div>
               </div>
 
@@ -702,6 +863,13 @@ export default function PedirWebPage() {
                   </button>
                   <button
                     type="button"
+                    className="lqr-btn-pdf"
+                    onClick={descargarPdfProforma}
+                  >
+                    📄 Descargar Proforma Oficial en PDF
+                  </button>
+                  <button
+                    type="button"
                     className="lqr-btn-back"
                     onClick={() => setPaso('subir')}
                   >
@@ -723,18 +891,28 @@ export default function PedirWebPage() {
               <div className="lqr-confirmed-box">
                 <p>Te contactaremos por WhatsApp al <strong>{clienteTelefono}</strong> para coordinar la entrega o retiro en tienda.</p>
               </div>
-              <button
-                type="button"
-                className="lqr-btn-submit"
-                onClick={() => {
-                  setFotos([]);
-                  setTextoLista('');
-                  setCotizacion(null);
-                  setPaso('subir');
-                }}
-              >
-                Hacer otra cotización
-              </button>
+              <div className="lqr-confirmed-actions" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '15px' }}>
+                <button
+                  type="button"
+                  className="lqr-btn-pdf"
+                  onClick={descargarPdfProforma}
+                >
+                  📄 Descargar Proforma Oficial en PDF
+                </button>
+                <button
+                  type="button"
+                  className="lqr-btn-back"
+                  style={{ width: '100%' }}
+                  onClick={() => {
+                    setFotos([]);
+                    setTextoLista('');
+                    setCotizacion(null);
+                    setPaso('subir');
+                  }}
+                >
+                  Hacer otra cotización
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1198,6 +1376,50 @@ export default function PedirWebPage() {
           font-size: 12px;
           color: #34d399;
           font-weight: 600;
+        }
+        .lqr-summary-actions-zone {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .lqr-btn-pdf-header {
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 10px;
+          color: #f1f5f9;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .lqr-btn-pdf-header:hover {
+          background: rgba(255, 255, 255, 0.15);
+          border-color: #38bdf8;
+          color: #38bdf8;
+        }
+        .lqr-btn-pdf {
+          width: 100%;
+          padding: 12px 18px;
+          background: rgba(56, 189, 248, 0.12);
+          border: 1px solid rgba(56, 189, 248, 0.35);
+          border-radius: 12px;
+          color: #38bdf8;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          margin-top: 4px;
+        }
+        .lqr-btn-pdf:hover {
+          background: rgba(56, 189, 248, 0.22);
+          border-color: #38bdf8;
+          box-shadow: 0 4px 15px rgba(56, 189, 248, 0.2);
         }
         .lqr-summary-total-badge {
           text-align: right;
