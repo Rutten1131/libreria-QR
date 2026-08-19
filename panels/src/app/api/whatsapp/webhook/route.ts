@@ -61,29 +61,17 @@ export async function POST(req: NextRequest) {
     const textoLimpio = (datos.texto || '').trim();
     const tieneImagen = Boolean(datos.imagenBase64);
 
-    // 1. Detectar si el mensaje es del flujo QR de cotización
-    const esMensajeQR =
-      /quiero cotizar|cotizar mi lista|lista de [úu]tiles|[úu]tiles escolares|cotizaci[oó]n|lista escolar|proforma/i.test(
-        textoLimpio
-      );
+    // 1. Detectar si el mensaje es exactamente la frase que envía el Código QR al escanear
+    const esMensajeQR = /quiero cotizar mi lista|quiero cotizar/i.test(textoLimpio);
 
-    // 2. Detectar si el texto parece una lista de útiles (contiene palabras clave de papelería o múltiples líneas)
-    const esListaUtilesTexto =
-      !tieneImagen &&
-      textoLimpio.length > 5 &&
-      (/\b(cuaderno|lapiz|lápiz|borrador|carpeta|regla|goma|tijera|cartulina|marcador|pintura|hoja|papel|sacapuntas|crayon|resaltador|esfero|boligrafo|pluma|pincel|tempera|fomix|plastilina|escuadra|compas|compás)\b/i.test(
-        textoLimpio
-      ) ||
-        (textoLimpio.split('\n').length >= 2 && /\d/.test(textoLimpio)));
-
-    // Si NO es mensaje QR, NI tiene imagen/PDF, NI es lista de útiles en texto -> IGNORAR (chat personal)
-    if (!esMensajeQR && !tieneImagen && !esListaUtilesTexto) {
-      console.log(`[Webhook WhatsApp] Mensaje personal/no relacionado ignorado: "${textoLimpio.substring(0, 30)}"`);
-      return NextResponse.json({ ok: true, ignored: true, reason: 'no es flujo qr ni lista escolar' });
+    // Si NO es la frase del QR y NO es una foto/documento -> IGNORAR SILENCIOSAMENTE (chat personal 100% aislado)
+    if (!esMensajeQR && !tieneImagen) {
+      console.log(`[Webhook WhatsApp] Chat personal ignorado: "${textoLimpio.substring(0, 40)}"`);
+      return NextResponse.json({ ok: true, ignored: true, reason: 'mensaje no es del QR' });
     }
 
-    // 3. Saludo / Bienvenida inicial del QR
-    if (esMensajeQR && !tieneImagen && !esListaUtilesTexto) {
+    // 2. Saludo / Bienvenida inicial del QR
+    if (esMensajeQR && !tieneImagen) {
       const bienvenida = `¡Hola! 👋 Bienvenido/a a *${nombreLibreria}* 📚✏️\n\nPor favor envíanos la *foto de tu lista escolar* 📸 (puedes enviar una o varias fotos), el archivo *PDF* 📄, o escribe los útiles que necesitas aquí en texto.\n\nTe calcularemos el presupuesto exacto al instante con nuestro inventario en stock.`;
 
       await enviarMensaje(datos.instanceName, {
@@ -94,7 +82,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, tipo: 'saludo_bienvenida' });
     }
 
-    // 4. Procesar lista de útiles (imagen o texto)
+    // 3. Procesar lista de útiles (cuando envían la foto/PDF tras el QR)
     try {
       const resultado = await procesarListaCliente({
         tenantId: tenantIdReal,
@@ -138,12 +126,17 @@ export async function POST(req: NextRequest) {
       });
     } catch (err: any) {
       console.warn('[Procesar Lista Error]', err.message);
-      const msgError = `No pudimos leer los útiles en tu mensaje o foto. 📸\n\nPor favor envíanos una foto más nítida de tu lista escolar o escribe los materiales que necesitas. ¡Con gusto te cotizamos!`;
 
-      await enviarMensaje(datos.instanceName, {
-        numero: datos.numero,
-        texto: msgError,
-      });
+      // SOLO responder con error si el usuario envió una imagen/PDF o un mensaje explícito de cotización
+      // NUNCA responder a mensajes de texto normales o chats personales
+      if (tieneImagen || esMensajeQR) {
+        const msgError = `No pudimos leer los útiles en tu lista o foto. 📸\n\nPor favor envíanos una foto más nítida de tu lista escolar o escribe los materiales que necesitas. ¡Con gusto te cotizamos!`;
+
+        await enviarMensaje(datos.instanceName, {
+          numero: datos.numero,
+          texto: msgError,
+        });
+      }
 
       return NextResponse.json({ ok: false, error: err.message }, { status: 200 });
     }
