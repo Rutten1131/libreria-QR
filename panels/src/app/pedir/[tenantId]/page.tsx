@@ -389,7 +389,7 @@ export default function PedirWebPage() {
     }
   };
 
-  // Enviar pedido
+  // Enviar / Confirmar pedido
   const handleConfirmarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clienteNombre.trim() || !clienteTelefono.trim()) {
@@ -401,27 +401,52 @@ export default function PedirWebPage() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/pedido`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cotizacion,
-          clienteNombre: clienteNombre.trim(),
-          clienteTelefono: clienteTelefono.trim(),
-          canal: 'web',
-        }),
-      });
+      if (pedidoId) {
+        // 1. Si el pedido ya fue creado (ej. vino de WhatsApp con ?pedido=ID), lo actualizamos a confirmado
+        const res = await fetch(`${API_URL}/api/pedidos/${pedidoId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            estado: 'confirmado',
+            clienteNombre: clienteNombre.trim(),
+            clienteTelefono: clienteTelefono.trim(),
+          }),
+        });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Error al registrar el pedido');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Error al confirmar el pedido');
+        }
+
+        setPaso('confirmado');
+      } else {
+        // 2. Si es un pedido nuevo creado directamente en la web
+        const res = await fetch(`${API_URL}/api/pedido`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cotizacion: {
+              ...cotizacion,
+              tenantId: tenant?.id || tenantId || 'libreria_prueba',
+              ambiguos: cotizacion?.items?.filter((i) => !i.disponible).map((i) => i.item) || [],
+            },
+            clienteNombre: clienteNombre.trim(),
+            clienteTelefono: clienteTelefono.trim(),
+            canal: 'web',
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Error al registrar el pedido');
+        }
+
+        const data = await res.json();
+        setPedidoId(data.id || 'PED-' + Math.floor(1000 + Math.random() * 9000));
+        setPaso('confirmado');
       }
-
-      const data = await res.json();
-      setPedidoId(data.id || 'PED-' + Math.floor(1000 + Math.random() * 9000));
-      setPaso('confirmado');
     } catch (e: any) {
-      setError(e.message || 'No se pudo enviar el pedido. Intenta nuevamente.');
+      setError(e.message || 'No se pudo confirmar el pedido. Intenta nuevamente.');
     } finally {
       setEnviandoPedido(false);
     }

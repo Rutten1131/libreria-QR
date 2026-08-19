@@ -37,15 +37,25 @@ export async function PATCH(
 ) {
   try {
     const body = await req.json();
-    const { estado } = body;
     const sb = getSupabase();
+
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (body.estado) {
+      updateData.estado = body.estado === 'confirmado_pagado' ? 'confirmado' : body.estado;
+    }
+    if (body.clienteNombre || body.cliente_nombre) {
+      updateData.cliente_nombre = body.clienteNombre || body.cliente_nombre;
+    }
+    if (body.clienteTelefono || body.cliente_telefono) {
+      updateData.cliente_telefono = body.clienteTelefono || body.cliente_telefono;
+    }
 
     const { data, error } = await sb
       .from('pedidos')
-      .update({
-        estado: estado === 'confirmado_pagado' ? 'confirmado' : estado,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', params.id)
       .select()
       .single();

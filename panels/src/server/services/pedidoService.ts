@@ -3,24 +3,30 @@ import { Cotizacion, Pedido } from '../domain/entities';
 import { guardarPedido, getPedidos } from '../adapters/pedidoAdapter';
 
 export async function crearPedido(
-  cotizacion: Cotizacion,
+  cotizacion: any,
   clienteNombre: string,
   clienteTelefono: string,
   canal: 'whatsapp' | 'web' = 'whatsapp'
 ): Promise<Pedido> {
-  const accionPendiente = cotizacion.ambiguos.length > 0
+  const ambiguos = Array.isArray(cotizacion?.ambiguos)
+    ? cotizacion.ambiguos
+    : Array.isArray(cotizacion?.items)
+    ? cotizacion.items.filter((i: any) => !i.disponible).map((i: any) => i.item || i.nombre)
+    : [];
+
+  const accionPendiente = ambiguos.length > 0
     ? 'Confirmar variante o reescribir lista'
     : 'Verificar pago recibido';
 
   return guardarPedido({
-    tenantId: cotizacion.tenantId,
+    tenantId: cotizacion?.tenantId || 'libreria_prueba',
     clienteNombre,
     clienteTelefono,
     canal,
-    items: cotizacion.items,
-    total: cotizacion.total,
+    items: cotizacion?.items || [],
+    total: Number(cotizacion?.total || 0),
     accionPendiente,
-    itemsAmbiguos: cotizacion.ambiguos,
+    itemsAmbiguos: ambiguos,
   });
 }
 
