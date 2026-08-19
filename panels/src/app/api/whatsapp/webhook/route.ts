@@ -90,21 +90,24 @@ export async function POST(req: NextRequest) {
       });
 
       const itemsDisponibles = resultado.cotizacion?.items || [];
-      const lineasPreview = itemsDisponibles
-        .slice(0, 4)
-        .map((it) => `• ${it.cantidad}x ${it.nombre} ($${(it.precioUnitario * it.cantidad).toFixed(2)})`)
-        .join('\n');
-      const masItems = itemsDisponibles.length > 4 ? `\n... y ${itemsDisponibles.length - 4} útiles más` : '';
-
       const faltantes = resultado.cotizacion?.ambiguos || [];
-      const textoFaltantes = faltantes.length > 0
-        ? `\n⚠️ *No disponibles en tienda:* ${faltantes.length} artículos.`
+
+      // Listar todos los materiales encontrados con cantidades y precios
+      const lineasDisponibles = itemsDisponibles
+        .map((it) => `• ${it.cantidad}x ${it.nombre} — $${(it.precioUnitario * it.cantidad).toFixed(2)}`)
+        .join('\n');
+
+      // Listar los materiales que no se encontraron en la tienda
+      const lineasFaltantes = faltantes.length > 0
+        ? `\n\n⚠️ *No disponibles en stock (${faltantes.length}):*\n` + faltantes.map((f) => `• ${f}`).join('\n')
         : '';
 
       const totalFormateado = resultado.cotizacion?.total ? `$${resultado.cotizacion.total.toFixed(2)}` : '$0.00';
       const pedidoNum = resultado.pedido?.id ? `#${resultado.pedido.id.slice(-6)}` : '';
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://libreria-qr-brown.vercel.app';
+      const linkPublico = `${appUrl}/pedir/${tenantIdReal}?pedido=${resultado.pedido?.id}`;
 
-      const resumen = `📚 *¡Hola! Hemos recibido tu lista de útiles* 📚\n\n${lineasPreview}${masItems}\n\n✅ *Útiles encontrados:* ${itemsDisponibles.length}\n💵 *Total Estimado:* ${totalFormateado}${textoFaltantes}\n\n_Tu pedido ${pedidoNum} ya fue registrado en *${nombreLibreria}*. En breve un asesor te escribirá para confirmar tu entrega o retiro._`;
+      const resumen = `📋 *Cotización de Útiles Escolares* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n✅ *Materiales Disponibles en Tienda:*\n${lineasDisponibles || '• Ninguno emparejado automáticamente'}${lineasFaltantes}\n\n━━━━━━━━━━━━━━━━━━━━\n📦 *${itemsDisponibles.length} útiles encontrados* | ⚠️ *${faltantes.length} no disponibles*\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n━━━━━━━━━━━━━━━━━━━━\n\n📄 *Ver desglose completo o descargar proforma:*\n${linkPublico}\n\n_Tu pedido ya fue registrado en el sistema. En breve un asesor te escribirá para confirmar tu entrega o retiro._`;
 
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
