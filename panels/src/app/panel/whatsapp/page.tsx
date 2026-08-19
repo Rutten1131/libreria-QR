@@ -34,14 +34,17 @@ export default function TenantWhatsappPage() {
   const [nombreNegocio, setNombreNegocio] = useState(
     rawNombre && !/^\d+$/.test(rawNombre) ? rawNombre : 'Librería Prueba'
   );
+  const [telefonoAsesor, setTelefonoAsesor] = useState('');
+  const [guardandoAsesor, setGuardandoAsesor] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     if (activeTenant) {
-      fetch(`${API_URL}/api/public/tenants/${activeTenant}`)
+      fetch(`${API_URL}/api/tenants/${activeTenant}`)
         .then((r) => r.json())
         .then((d) => {
           if (d?.tenant?.nombre) setNombreNegocio(d.tenant.nombre);
+          if (d?.tenant?.telefono) setTelefonoAsesor(d.tenant.telefono);
         })
         .catch(() => {});
     }
@@ -173,6 +176,28 @@ export default function TenantWhatsappPage() {
     window.print();
   };
 
+  const handleGuardarAsesor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTenant) return;
+    setGuardandoAsesor(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`${API_URL}/api/tenants/${activeTenant}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefono: telefonoAsesor }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar el teléfono');
+      setSuccess('¡Teléfono del asesor guardado con éxito! Recibirá un mensaje automático cada vez que un cliente confirme un pedido.');
+    } catch (err: any) {
+      setError(err.message || 'No se pudo guardar el número del asesor');
+    } finally {
+      setGuardandoAsesor(false);
+    }
+  };
+
   return (
     <main className="lqr-main">
       <div className="lqr-container">
@@ -246,6 +271,95 @@ export default function TenantWhatsappPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ── Tarjeta de Configuración: Número del Asesor para Notificaciones ── */}
+        <div
+          className="glass-card"
+          style={{
+            marginBottom: '24px',
+            padding: '20px 24px',
+            borderRadius: '16px',
+            background: 'rgba(15, 23, 42, 0.75)',
+            border: '1px solid rgba(59, 130, 246, 0.25)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+            <div
+              style={{
+                fontSize: '28px',
+                background: 'rgba(59, 130, 246, 0.15)',
+                padding: '10px 12px',
+                borderRadius: '12px',
+                lineHeight: 1,
+              }}
+            >
+              🔔
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#f8fafc' }}>
+                  Número del Asesor / Dueño para Notificaciones
+                </h3>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    background: telefonoAsesor ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                    color: telefonoAsesor ? '#34d399' : '#fbbf24',
+                  }}
+                >
+                  {telefonoAsesor ? `Asignado: +${telefonoAsesor}` : 'Pendiente de configurar'}
+                </span>
+              </div>
+              <p style={{ margin: '0 0 14px 0', fontSize: '13px', color: '#94a3b8', lineHeight: 1.5 }}>
+                Cuando un cliente confirme su lista escolar por WhatsApp, el sistema le enviará un mensaje automático a este número con el resumen del pedido y la proforma, y le pasará la conversación.
+              </p>
+
+              <form
+                onSubmit={handleGuardarAsesor}
+                style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}
+              >
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <input
+                    type="tel"
+                    placeholder="Ej. 593983237491 o 0983237491"
+                    value={telefonoAsesor}
+                    onChange={(e) => setTelefonoAsesor(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '11px 14px',
+                      borderRadius: '10px',
+                      background: 'rgba(0, 0, 0, 0.35)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      color: '#f8fafc',
+                      fontSize: '14px',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={guardandoAsesor}
+                  style={{
+                    padding: '11px 18px',
+                    borderRadius: '10px',
+                    background: '#2563eb',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                >
+                  {guardandoAsesor ? 'Guardando...' : '💾 Guardar Número del Asesor'}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
 
         {/* ── PESTAÑA 1: VINCULACIÓN DEL WHATSAPP ── */}
         {tabActiva === 'vinculacion' && (
