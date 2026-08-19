@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic';
 
 // Cache de deduplicación de mensajes procesados recientemente (evita duplicados si Evolution reintenta)
 const mensajesProcesados = new Map<string, number>();
+const ultimosMensajesPorNumero = new Map<string, number>();
+
 
 function esMensajeDuplicado(messageId?: string): boolean {
   if (!messageId) return false;
@@ -103,7 +105,31 @@ export async function POST(req: NextRequest) {
     // 3. Consultar o inicializar estado de la conversación con este cliente
     let conv = await obtenerConversacion(tenantIdReal, datos.numero);
 
-    // 4. Detectar si el mensaje es el inicio del flujo QR
+    // 4. Comando de PARAR / SILENCIAR BOT en este chat
+    const esComandoPausa = /^(parar|stop|pausa|pausar|silencio|asesor|humano|cancelar|apagar)$/i.test(textoLimpio);
+    if (esComandoPausa) {
+      if (conv) {
+        await actualizarConversacion(conv.id, {
+          estadoActual: 'DERIVADO_A_HUMANO',
+          requiereHumano: true,
+        });
+      } else {
+        const c = await crearConversacion(tenantIdReal, datos.numero);
+        await actualizarConversacion(c.id, {
+          estadoActual: 'DERIVADO_A_HUMANO',
+          requiereHumano: true,
+        });
+      }
+
+      await enviarMensaje(datos.instanceName, {
+        numero: datos.numero,
+        texto: `⏸️ *Bot pausado en este chat.* Te hemos transferido con un asesor humano. El bot permanecerá en silencio hasta que escanees el código QR de la tienda nuevamente.`,
+      });
+
+      return NextResponse.json({ ok: true, tipo: 'bot_pausado_manualmente' });
+    }
+
+    // 5. Detectar si el mensaje es el inicio del flujo QR
     const esMensajeQR = /quiero cotizar mi lista|quiero cotizar/i.test(textoLimpio);
 
     // Si escanea el QR nuevamente, reiniciamos el handoff y la conversación
@@ -134,11 +160,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Si la conversación está en HANDOFF (humano activo) y NO es escaneo de QR -> SILENCIO TOTAL
+    // 6. Si la conversación está en HANDOFF (humano activo) y NO es escaneo de QR -> SILENCIO TOTAL
     if (conv?.requiereHumano && !esMensajeQR) {
       console.log(`[Webhook WhatsApp] Chat en handoff humano ignorado: ${datos.numero}`);
       return NextResponse.json({ ok: true, ignored: true, reason: 'en_handoff_humano' });
     }
+
+    // 7. Cooldown anti-spam por número (ignora retries automáticos en <8s)
+    const ultimoProceso = ultimosMensajesPorNumero.get(datos.numero);
+    const ahora = Date.now();
+    if (ultimoProceso && ahora - ultimoProceso < 8000 && !esMensajeQR) {
+      console.log(`[Webhook WhatsApp] Ignorado por cooldown anti-spam (${ahora - ultimoProceso}ms): ${datos.numero}`);
+      return NextResponse.json({ ok: true, ignored: true, reason: 'cooldown_activo' });
+    }
+    ultimosMensajesPorNumero.set(datos.numero, ahora);
+
 
     // 6. Si el cliente está respondiendo para CONFIRMAR la cotización
     const esConfirmacionAfirmativa =

@@ -168,23 +168,9 @@ export async function procesarListaCliente(
   const lineasParaValidar = itemsParseados.map((i) => `${i.cantidad}|${i.nombre}`);
   const advertencia = validarCantidades(textoParaParsear, lineasParaValidar);
 
-  // Paso 3: Matching contra catalogo del tenant
-  const listaParaMatching = itemsParseados.map(i => i.nombre);
-  const cotizacion = await cotizar(entrada.tenantId, listaParaMatching);
+  // Paso 3: Matching contra catálogo del tenant
+  const cotizacion = await cotizar(entrada.tenantId, itemsParseados);
 
-  // Aplicar cantidades del parseo a los items matched
-  for (const item of cotizacion.items) {
-    const match = itemsParseados.find(
-      ip => ip.nombre.toLowerCase() === item.nombre.toLowerCase()
-    );
-    if (match) item.cantidad = match.cantidad;
-  }
-
-  // Recalcular total
-  cotizacion.total = cotizacion.items.reduce(
-    (s, i) => s + i.precioUnitario * i.cantidad,
-    0
-  );
 
   // Si hay ambiguedades, marcar accion pendiente especifica
   // (el pedido se crea igual, queda en necesita_revision)
