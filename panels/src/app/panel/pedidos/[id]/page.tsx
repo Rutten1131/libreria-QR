@@ -37,11 +37,13 @@ export default function DetallePedidoPage() {
       if (ok) {
         setPedido((prev) => (prev ? { ...prev, estado: nuevoEstado } : null));
         setNotif(
-          nuevoEstado === 'confirmado_pagado'
-            ? '✓ Pedido movido a Confirmado / Pagado (Listo para Despacho)'
-            : nuevoEstado === 'despachado'
-              ? '✓ Pedido marcado como Despachado / Entregado'
-              : '✓ Estado actualizado'
+          nuevoEstado === 'confirmado'
+            ? '✓ Pedido marcado como Confirmado (Esperando Pago)'
+            : nuevoEstado === 'pagado'
+              ? '✓ Pedido marcado como Pagado (Listo para Despacho)'
+              : nuevoEstado === 'despachado'
+                ? '✓ Pedido marcado como Despachado / Entregado'
+                : '✓ Estado actualizado a Revisión'
         );
         setTimeout(() => setNotif(null), 4000);
       } else {
@@ -252,9 +254,9 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
                   type="button"
                   className="lqr-btn-primary lqr-btn-primary--confirm"
                   disabled={actualizando}
-                  onClick={() => handleCambiarEstado('confirmado_pagado')}
+                  onClick={() => handleCambiarEstado('confirmado')}
                 >
-                  {actualizando ? 'Actualizando...' : '📦 Confirmar y Pasar a Despacho (Confirmado / Pagado) →'}
+                  {actualizando ? 'Actualizando...' : '✅ Pasar a Confirmado (Esperando Pago) →'}
                 </button>
 
                 <div className="lqr-secondary-actions">
@@ -262,9 +264,9 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
                     type="button"
                     className="lqr-btn-secondary"
                     disabled={actualizando}
-                    onClick={() => handleCambiarEstado('despachado')}
+                    onClick={() => handleCambiarEstado('pagado')}
                   >
-                    🚀 Marcar Despachado Directamente
+                    💳 Marcar como Pagado Directamente
                   </button>
                   <button
                     type="button"
@@ -277,7 +279,39 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
               </>
             )}
 
-            {pedido.estado === 'confirmado_pagado' && (
+            {pedido.estado === 'confirmado' && (
+              <>
+                <button
+                  type="button"
+                  className="lqr-btn-primary lqr-btn-primary--confirm"
+                  style={{ background: 'linear-gradient(135deg, #06b6d4, #0284c7)' }}
+                  disabled={actualizando}
+                  onClick={() => handleCambiarEstado('pagado')}
+                >
+                  {actualizando ? 'Actualizando...' : '💳 Marcar como Pagado (Listo para Despacho) →'}
+                </button>
+
+                <div className="lqr-secondary-actions">
+                  <button
+                    type="button"
+                    className="lqr-btn-whatsapp"
+                    onClick={handleAbrirWhatsApp}
+                  >
+                    💬 Solicitar Comprobante por WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    className="lqr-btn-secondary"
+                    disabled={actualizando}
+                    onClick={() => handleCambiarEstado('necesita_revision')}
+                  >
+                    ↩ Regresar a Revisión
+                  </button>
+                </div>
+              </>
+            )}
+
+            {pedido.estado === 'pagado' && (
               <>
                 <button
                   type="button"
@@ -285,7 +319,7 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
                   disabled={actualizando}
                   onClick={() => handleCambiarEstado('despachado')}
                 >
-                  {actualizando ? 'Actualizando...' : '✓ Marcar como Despachado / Entregado al Cliente'}
+                  {actualizando ? 'Actualizando...' : '📦 Marcar como Despachado / Entregado al Cliente'}
                 </button>
 
                 <div className="lqr-secondary-actions">
@@ -300,9 +334,9 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
                     type="button"
                     className="lqr-btn-secondary"
                     disabled={actualizando}
-                    onClick={() => handleCambiarEstado('necesita_revision')}
+                    onClick={() => handleCambiarEstado('confirmado')}
                   >
-                    ↩ Regresar a Revisión
+                    ↩ Regresar a Confirmado (Pendiente Pago)
                   </button>
                 </div>
               </>
@@ -319,9 +353,9 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
                   type="button"
                   className="lqr-btn-secondary"
                   disabled={actualizando}
-                  onClick={() => handleCambiarEstado('confirmado_pagado')}
+                  onClick={() => handleCambiarEstado('pagado')}
                 >
-                  ↩ Reabrir Pedido
+                  ↩ Reabrir Pedido (Marcar como Pagado)
                 </button>
               </div>
             )}
@@ -725,12 +759,13 @@ ${pedido.items_ambiguos && pedido.items_ambiguos.length > 0 ? `\n⚠️ *Artícu
 
 function labelFor(estado: Pedido['estado']): string {
   if (estado === 'necesita_revision') return 'Por revisar';
-  if (estado === 'confirmado_pagado') return 'Confirmado / Pagado';
+  if (estado === 'confirmado') return 'Confirmado (Por pagar)';
+  if (estado === 'pagado') return 'Pagado (Por despachar)';
   return 'Despachado';
 }
 
 function pillFor(estado: Pedido['estado']): 'warn' | 'info' | 'accent' {
   if (estado === 'necesita_revision') return 'warn';
-  if (estado === 'confirmado_pagado') return 'info';
+  if (estado === 'confirmado') return 'info';
   return 'accent';
 }

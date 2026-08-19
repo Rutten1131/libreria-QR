@@ -5,7 +5,8 @@
 
 export type EstadoPedido =
   | 'necesita_revision'
-  | 'confirmado_pagado'
+  | 'confirmado'
+  | 'pagado'
   | 'despachado';
 
 export interface ItemPedido {

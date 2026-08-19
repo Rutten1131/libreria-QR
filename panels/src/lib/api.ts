@@ -53,7 +53,7 @@ export async function listarPedidos(tenantId: string): Promise<Pedido[]> {
           tenant_id: p.tenant_id || p.tenantId || tenantId,
           cliente_nombre: p.cliente_nombre || p.clienteNombre || 'Cliente WhatsApp',
           cliente_telefono: p.cliente_telefono || p.clienteTelefono || '',
-          estado: p.estado === 'confirmado' ? 'confirmado_pagado' : (p.estado || 'necesita_revision'),
+          estado: p.estado || 'necesita_revision',
           items: (p.items || []).map((it: any) => ({
             nombre: it.nombre,
             cantidad: it.cantidad,
@@ -125,7 +125,7 @@ export async function toggleProductoStock(tenantId: string, productoId: string, 
 export async function listarComandas(tenantId: string): Promise<Comanda[]> {
   const pedidos = await listarPedidos(tenantId);
   return pedidos
-    .filter((p) => p.estado === 'confirmado_pagado' || p.estado === 'despachado')
+    .filter((p) => p.estado === 'confirmado' || p.estado === 'pagado' || p.estado === 'despachado')
     .map((p) => ({
       pedido_id: p.id,
       cliente: p.cliente_nombre,
@@ -138,7 +138,7 @@ export async function listarComandas(tenantId: string): Promise<Comanda[]> {
 export async function actualizarEstadoPedido(
   tenantId: string,
   pedidoId: string,
-  nuevoEstado: 'necesita_revision' | 'confirmado_pagado' | 'despachado'
+  nuevoEstado: import('./types').EstadoPedido
 ): Promise<boolean> {
   try {
     const res = await fetchConTimeout(`${API_URL}/api/pedidos/${encodeURIComponent(pedidoId)}`, {

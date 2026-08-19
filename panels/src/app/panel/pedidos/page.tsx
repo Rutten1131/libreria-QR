@@ -11,12 +11,13 @@ import type { Pedido, EstadoPedido } from '@/lib/types';
 const COLUMNAS: {
   id: EstadoPedido;
   label: string;
-  accent: 'warn' | 'info' | 'accent';
+  accent: 'warn' | 'info' | 'cyan' | 'accent';
   kpiLabel: string;
 }[] = [
-  { id: 'necesita_revision',  label: 'Necesita revisión',   accent: 'warn',   kpiLabel: 'Por revisar' },
-  { id: 'confirmado_pagado',  label: 'Confirmado / Pagado', accent: 'info',   kpiLabel: 'Por despachar' },
-  { id: 'despachado',         label: 'Despachado',          accent: 'accent', kpiLabel: 'Despachados' },
+  { id: 'necesita_revision',  label: 'Necesita revisión', accent: 'warn',   kpiLabel: 'Por revisar' },
+  { id: 'confirmado',         label: 'Confirmado',        accent: 'info',   kpiLabel: 'Por pagar' },
+  { id: 'pagado',             label: 'Pagado',            accent: 'cyan',   kpiLabel: 'Por despachar' },
+  { id: 'despachado',         label: 'Despachado',        accent: 'accent', kpiLabel: 'Despachados' },
 ];
 
 function esDeHoy(iso?: string): boolean {
@@ -111,10 +112,18 @@ export default function PedidosPage() {
   const grouped = useMemo(() => {
     const g: Record<EstadoPedido, Pedido[]> = {
       necesita_revision: [],
-      confirmado_pagado: [],
+      confirmado: [],
+      pagado: [],
       despachado: [],
     };
-    filtrados.forEach((p) => g[p.estado].push(p));
+    filtrados.forEach((p) => {
+      const est = (p.estado as string) === 'confirmado_pagado' ? 'confirmado' : p.estado;
+      if (g[est]) {
+        g[est].push(p);
+      } else {
+        g['necesita_revision'].push(p);
+      }
+    });
     return g;
   }, [filtrados]);
 
@@ -418,12 +427,12 @@ export default function PedidosPage() {
         /* ── KPI Floating Bar ── */
         .lqr-kpi-bar {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 14px;
           margin-bottom: 22px;
         }
         .lqr-kpi-card {
-          padding: 20px 24px;
+          padding: 18px 20px;
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -438,7 +447,7 @@ export default function PedidosPage() {
           gap: 2px;
         }
         .lqr-kpi-card__num {
-          font-size: 42px;
+          font-size: 38px;
           font-weight: 800;
           letter-spacing: -0.04em;
           line-height: 1;
@@ -447,7 +456,7 @@ export default function PedidosPage() {
         }
 
         .lqr-kpi-card__label {
-          font-size: 12px;
+          font-size: 11px;
           color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.08em;
@@ -461,6 +470,7 @@ export default function PedidosPage() {
         }
         .lqr-kpi-card__indicator--warn   { background: #ffb020; }
         .lqr-kpi-card__indicator--info   { background: #0a84ff; }
+        .lqr-kpi-card__indicator--cyan   { background: #06b6d4; }
         .lqr-kpi-card__indicator--accent { background: #30d158; }
 
         /* ── Filters & Time Tabs ── */
@@ -632,18 +642,19 @@ export default function PedidosPage() {
         }
         .lqr-mob-tab--active.lqr-mob-tab--warn   { background: rgba(255, 176, 32, 0.1);   color: #ffb020;   border-color: rgba(255, 176, 32, 0.2); }
         .lqr-mob-tab--active.lqr-mob-tab--info   { background: rgba(10, 132, 255, 0.1);   color: #0a84ff;   border-color: rgba(10, 132, 255, 0.2); }
+        .lqr-mob-tab--active.lqr-mob-tab--cyan   { background: rgba(6, 182, 212, 0.1);    color: #06b6d4;   border-color: rgba(6, 182, 212, 0.2); }
         .lqr-mob-tab--active.lqr-mob-tab--accent { background: rgba(48, 209, 88, 0.1); color: #30d158; border-color: rgba(48, 209, 88, 0.2); }
 
         /* ── Board ── */
         .lqr-board {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 20px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 16px;
           align-items: start;
         }
 
         .lqr-col {
-          padding: 22px;
+          padding: 18px 16px;
           border-radius: var(--radius-xl);
         }
 

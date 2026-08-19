@@ -23,7 +23,7 @@ export interface Pedido {
   clienteTelefono: string;
   items: PedidoItem[];
   total: number;
-  estado: 'necesita_revision' | 'confirmado' | 'despachado' | 'cancelado';
+  estado: 'necesita_revision' | 'confirmado' | 'pagado' | 'despachado' | 'cancelado';
   accionPendiente: string; // ej. "Confirmar variante", "Verificar pago recibido"
   fechaCreacion: Date;
   fechaActualizacion: Date;

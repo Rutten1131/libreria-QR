@@ -44,7 +44,7 @@ export async function PATCH(
     };
 
     if (body.estado) {
-      updateData.estado = body.estado === 'confirmado_pagado' ? 'confirmado' : body.estado;
+      updateData.estado = body.estado;
     }
     if (body.clienteNombre || body.cliente_nombre) {
       updateData.cliente_nombre = body.clienteNombre || body.cliente_nombre;
