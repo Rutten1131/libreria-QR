@@ -281,7 +281,7 @@ export function validarWebhookEvolution(payload: any): {
   pushName?: string;
   texto?: string;
   imagenBase64?: string;
-  mimeType?: 'image/jpeg' | 'image/png' | 'image/webp';
+  mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 } | null {
   // 1. Filtrar estrictamente por tipo de evento: SOLO procesar cuando un mensaje es nuevo (upsert)
   // Ignorar 'messages.update' (visto / leído / entregado), 'connection.update', etc.
@@ -328,15 +328,17 @@ export function validarWebhookEvolution(payload: any): {
   // NO dentro de imageMessage.base64. Chequeamos todas las ubicaciones posibles.
   const imagenBase64 =
     msg.base64 ||                     // Evolution v2 standard location
-    imageMsg?.base64 ||               // Algunas versiones lo ponen aquí
+    imageMsg?.base64 ||               // Algunas versiones de imagen
+    docMsg?.base64 ||                 // Algunas versiones de documento/PDF
     payload.data?.base64 ||           // Fallback a data-level
     payload.data?.body ||             // Otra variante de Evolution
     null;
 
   // --- Detectar mime type ---
   const rawMime = (imageMsg?.mimetype || docMsg?.mimetype || '') as string;
-  let mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg';
-  if (rawMime.includes('png')) mimeType = 'image/png';
+  let mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf' = 'image/jpeg';
+  if (rawMime.includes('pdf') || messageType === 'documentMessage') mimeType = 'application/pdf';
+  else if (rawMime.includes('png')) mimeType = 'image/png';
   else if (rawMime.includes('webp')) mimeType = 'image/webp';
 
   // --- Log de diagnóstico ---
@@ -349,7 +351,7 @@ export function validarWebhookEvolution(payload: any): {
     `messageType=${messageType} hasImage=${hasImage} hasDoc=${hasDoc} ` +
     `hasBase64=${hasBase64} base64Len=${base64Len} ` +
     `texto=${texto ? texto.substring(0, 50) : '(none)'} ` +
-    `mime=${rawMime}`
+    `mime=${mimeType} (raw: ${rawMime})`
   );
 
   if (!texto && !imagenBase64) {

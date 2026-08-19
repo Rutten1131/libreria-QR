@@ -30,7 +30,7 @@ export interface EntradaCliente {
   clienteTelefono: string;
   textoOriginal?: string;
   imagenBase64?: string;
-  mimeType?: 'image/jpeg' | 'image/png' | 'image/webp';
+  mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
 }
 
 export interface ResultadoOrquestacion {

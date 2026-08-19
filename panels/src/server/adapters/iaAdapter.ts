@@ -255,21 +255,23 @@ async function llamarOpenAICompatible(
   }
 }
 
+export type MimeTypeEntrada = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+
 /**
- * Transcribe una imagen (lista de utiles) a texto plano.
+ * Transcribe una imagen o documento PDF (lista de utiles) a texto plano.
  */
 export async function transcribirOCR(
   imagenBase64: string,
-  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg'
+  mimeType: MimeTypeEntrada = 'image/jpeg'
 ): Promise<OCRResult> {
   return transcribirMultiplesImagenesOCR([{ base64: imagenBase64, mimeType }]);
 }
 
 /**
- * Transcribe múltiples imágenes (páginas de una lista escolar)
+ * Transcribe múltiples imágenes o documentos PDF (páginas de una lista escolar)
  */
 export async function transcribirMultiplesImagenesOCR(
-  imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
+  imagenes: Array<{ base64: string; mimeType?: MimeTypeEntrada }>
 ): Promise<OCRResult> {
   if (imagenes.length === 0) {
     return { texto: '', confianza: 'baja', fuente: 'GEMINI_FLASH_LITE' };
