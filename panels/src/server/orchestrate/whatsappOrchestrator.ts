@@ -71,19 +71,54 @@ function validarCantidades(
   return null;
 }
 
-function parsearLineasGroq(output: string): Array<{ cantidad: number; nombre: string }> {
+function parsearLineasGroq(
+  output: string,
+  textoOriginalFallback?: string
+): Array<{ cantidad: number; nombre: string }> {
   const resultado: Array<{ cantidad: number; nombre: string }> = [];
-  const lineas = output.split('\n').filter(l => l.trim().length > 0);
+
+  const lineas = (output || '').split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+
+  // 1. Intentar formato estándar: cantidad|nombre
   for (const linea of lineas) {
-    const partes = linea.split('|');
-    if (partes.length >= 2) {
+    if (linea.includes('|')) {
+      const partes = linea.split('|');
       const cant = parseInt(partes[0].trim(), 10);
       const nombre = partes.slice(1).join('|').trim();
       if (!isNaN(cant) && nombre.length > 0) {
-        resultado.push({ cantidad: cant, nombre });
+        resultado.push({ cantidad: Math.max(1, cant), nombre });
       }
     }
   }
+
+  if (resultado.length > 0) return resultado;
+
+  // 2. Fallback inteligente: Parsear viñetas y texto natural (ej. "• 1 cuaderno...", "3 lápices...")
+  const fuentes = [lineas, (textoOriginalFallback || '').split('\n')];
+  for (const listaLineas of fuentes) {
+    for (const linea of listaLineas) {
+      const limpia = linea.replace(/^[-*•·\d.)\s]+/, '').trim();
+      if (limpia.length < 3 || /^(material|cartuchera|varios|útiles|utiles|lista)/i.test(limpia)) {
+        continue;
+      }
+
+      // Buscar si empieza con cantidad (ej. "1 cuaderno", "3 lápices", "1x caja")
+      const match = linea.match(/^(?:[-*•·\s]*)?(\d+)\s*(?:x|de)?\s+(.+)$/i);
+      if (match) {
+        const cant = parseInt(match[1], 10);
+        const nombre = match[2].trim();
+        if (!isNaN(cant) && nombre.length > 0) {
+          resultado.push({ cantidad: Math.max(1, cant), nombre });
+          continue;
+        }
+      }
+
+      resultado.push({ cantidad: 1, nombre: limpia });
+    }
+
+    if (resultado.length > 0) break;
+  }
+
   return resultado;
 }
 
@@ -99,7 +134,7 @@ export async function procesarListaCliente(
   if (entrada.imagenBase64) {
     const ocr = await transcribirOCR(
       entrada.imagenBase64,
-      entrada.mimeType ?? 'image/png'
+      entrada.mimeType ?? 'image/jpeg'
     );
     textoParaParsear = ocr.texto;
   }
@@ -108,19 +143,30 @@ export async function procesarListaCliente(
     throw new Error('No se pudo obtener texto del input (Riesgo #16)');
   }
 
-  // Paso 2: Parseo inteligente con Groq
+  // Paso 2: Parseo inteligente con Groq / LLM
   const inventario = await getInventarioAsync(entrada.tenantId);
-  const nombresInventario = inventario.map(p => p.nombre);
+  const nombresInventario = inventario.map((p) => p.nombre);
 
-  const parseo = await interpretarTexto(textoParaParsear, nombresInventario);
-  const itemsParseados = parsearLineasGroq(parseo.texto);
+  let itemsParseados: Array<{ cantidad: number; nombre: string }> = [];
+  try {
+    const parseo = await interpretarTexto(textoParaParsear, nombresInventario);
+    itemsParseados = parsearLineasGroq(parseo.texto, textoParaParsear);
+  } catch (err: any) {
+    console.warn('[InterpretarTexto Warning]', err.message);
+    itemsParseados = parsearLineasGroq('', textoParaParsear);
+  }
 
   if (itemsParseados.length === 0) {
-    throw new Error('Groq no devolvio items parseables. Escalar a revision humana.');
+    itemsParseados = parsearLineasGroq('', textoParaParsear);
+  }
+
+  if (itemsParseados.length === 0) {
+    throw new Error('No pudimos identificar los útiles escolares en la foto. Por favor envía una foto más nítida.');
   }
 
   // Validacion cruzada (Riesgo #17)
-  const advertencia = validarCantidades(textoParaParsear, parseo.texto.split('\n'));
+  const lineasParaValidar = itemsParseados.map((i) => `${i.cantidad}|${i.nombre}`);
+  const advertencia = validarCantidades(textoParaParsear, lineasParaValidar);
 
   // Paso 3: Matching contra catalogo del tenant
   const listaParaMatching = itemsParseados.map(i => i.nombre);

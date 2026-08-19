@@ -1,6 +1,5 @@
 // Adapter de Inteligencia Artificial para LibreríaQR (Vision OCR + Parsing)
-// Proveedores: Groq (primario, ultra-rápido) + NVIDIA NIM (fallback)
-// Cascade defensivo: Si un modelo falla o tarda, pasa automáticamente al siguiente.
+// Proveedores: NVIDIA NIM (Vision) + Groq (Parsing ultra-rápido)
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -11,50 +10,50 @@ export interface ModeloPerfil {
   proveedor: 'nvidia' | 'groq';
   descripcion: string;
   temperature: number;
-  timeoutMs: number; // timeout específico por modelo
+  timeoutMs: number;
 }
 
 const MODELOS: Record<string, ModeloPerfil> = {
   // === OCR / Vision ===
-  GROQ_LLAMA_VISION: {
-    id: 'llama-3.2-90b-vision-preview',
-    vision: true,
-    proveedor: 'groq',
-    descripcion: 'Groq Llama 3.2 90B Vision — ultra-rápido (<3s).',
-    temperature: 0.01,
-    timeoutMs: 25000,
-  },
   LLAMA_VISION: {
     id: 'meta/llama-3.2-11b-vision-instruct',
     vision: true,
     proveedor: 'nvidia',
-    descripcion: 'NVIDIA Llama 3.2 11B Vision (fallback).',
+    descripcion: 'NVIDIA Llama 3.2 11B Vision — Transcripción OCR de alta precisión.',
+    temperature: 0.01,
+    timeoutMs: 25000,
+  },
+  NEMOTRON_OMNI: {
+    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+    vision: true,
+    proveedor: 'nvidia',
+    descripcion: 'NVIDIA Nemotron Omni Vision (fallback).',
     temperature: 0.01,
     timeoutMs: 25000,
   },
 
-  // === Chat / Texto ===
-  GROQ_LLAMA_TEXT: {
-    id: 'llama-3.1-70b-versatile',
+  // === Chat / Parser de Texto ===
+  GROQ_TEXT: {
+    id: 'openai/gpt-oss-120b',
     vision: false,
     proveedor: 'groq',
-    descripcion: 'Groq Llama 3.1 70B — texto principal ultra-rápido.',
+    descripcion: 'Groq GPT-OSS 120B — Parser de texto ultra-rápido (<1s).',
+    temperature: 0.01,
+    timeoutMs: 15000,
+  },
+  NVIDIA_LLAMA_TEXT: {
+    id: 'meta/llama-3.1-70b-instruct',
+    vision: false,
+    proveedor: 'nvidia',
+    descripcion: 'NVIDIA Llama 3.1 70B Instruct (fallback de texto).',
     temperature: 0.01,
     timeoutMs: 20000,
   },
-  NEMOTRON_ULTRA: {
-    id: 'nvidia/nemotron-3-ultra-550b-a55b',
-    vision: false,
-    proveedor: 'nvidia',
-    descripcion: 'Nemotron Ultra 550B. Fallback de texto NVIDIA.',
-    temperature: 0.01,
-    timeoutMs: 25000,
-  },
 };
 
-// === Orden de cascade (Groq primero = más rápido) ===
-const CASCADE_VISION = ['GROQ_LLAMA_VISION', 'LLAMA_VISION'];
-const CASCADE_TEXT = ['GROQ_LLAMA_TEXT', 'NEMOTRON_ULTRA'];
+// === Orden de cascade ===
+const CASCADE_VISION = ['LLAMA_VISION', 'NEMOTRON_OMNI'];
+const CASCADE_TEXT = ['GROQ_TEXT', 'NVIDIA_LLAMA_TEXT'];
 
 export type Fuente = keyof typeof MODELOS;
 
@@ -87,7 +86,7 @@ function getApiUrl(proveedor: 'nvidia' | 'groq'): string {
 async function backoffRetry<T>(
   fn: () => Promise<T>,
   label: string,
-  maxReintentos = 1 // 1 reintento para no sumar latencia
+  maxReintentos = 1
 ): Promise<T> {
   let lastError: unknown;
   for (let intento = 0; intento <= maxReintentos; intento++) {
@@ -149,7 +148,10 @@ async function llamarModelo(
       choices?: Array<{ message?: { content?: string } }>;
     };
 
-    const texto = data.choices?.[0]?.message?.content?.trim() ?? '';
+    const rawTexto = data.choices?.[0]?.message?.content?.trim() ?? '';
+    // Limpiar posibles etiquetas de razonamiento como <think>...</think>
+    const texto = rawTexto.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
     if (texto.length === 0) {
       throw new Error(`${modeloKey} devolvio respuesta vacia`);
     }
@@ -230,17 +232,16 @@ REGLAS:
 
 /**
  * Transcribe múltiples imágenes (páginas de una lista escolar)
- * Llama 3.2 Vision acepta 1 imagen por prompt, procesando cada foto en ~0.8s
  */
 export async function transcribirMultiplesImagenesOCR(
   imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
 ): Promise<OCRResult> {
   if (imagenes.length === 0) {
-    return { texto: '', confianza: 'baja', fuente: 'GROQ_LLAMA_VISION' };
+    return { texto: '', confianza: 'baja', fuente: 'LLAMA_VISION' };
   }
 
   const todasLasLineas: string[] = [];
-  let ultimaFuente: Fuente = 'GROQ_LLAMA_VISION';
+  let ultimaFuente: Fuente = 'LLAMA_VISION';
 
   for (const img of imagenes) {
     try {
@@ -273,42 +274,34 @@ export async function interpretarTexto(
 ): Promise<LLMResult> {
   const catalogoTexto = inventarioDisponible.map((n) => `- ${n}`).join('\n');
 
-  const prompt = `Eres un parser de pedidos. Tu trabajo es extraer items de un texto.
+  const prompt = `Eres un parser de pedidos de útiles escolares. Tu trabajo es extraer items y cantidades.
 
-CATALOGO (mapea al nombre EXACTO si hay match):
+CATALOGO DISPONIBLE EN TIENDA (si hay coincidencia cercana, usa este nombre exacto):
 ${catalogoTexto}
 
-TEXTO DEL CLIENTE:
+TEXTO DE LA LISTA:
 """
 ${textoLibre}
 """
 
-REGLAS:
-- Si el cliente dice "3 cuadernos" → cantidad = 3
-- Si no dice cantidad → cantidad = 1
-- Si no hay match exacto en el catalogo → devuelve el texto literal
-- NUNCA inventes productos
-- NUNCA asumas productos que el cliente no menciono
+REGLAS OBLIGATORIAS:
+- Extrae cada útil con su cantidad.
+- Si no dice cantidad, usa 1.
+- Formato estricto de salida: cantidad|nombre
+- NADA de explicaciones, saludos ni comentarios. Solo las líneas cantidad|nombre.
 
-FORMATO DE SALIDA (SOLO estas lineas, una por item, NADA mas):
-cantidad|nombre
-
-Ejemplo:
-3|Cuaderno college 100h
-2|Lapiz 2B`;
+Ejemplo de salida:
+1|Cuaderno parvulario cosido 100 hojas de lineas
+1|Cuaderno parvulario cosido 100 hojas de cuadros
+1|Carpeta tipo sobre broche plastico duro
+3|Lapices delgados triplus HB`;
 
   const body = {
     messages: [{ role: 'user' as const, content: prompt }],
-    max_tokens: 512,
+    max_tokens: 1024,
   };
 
   const { content, fuente } = await cascadaLlamar(false, body);
 
-  const lineasValidas = content
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^\d+\|.+$/.test(l))
-    .join('\n');
-
-  return { texto: lineasValidas || content, fuente };
+  return { texto: content, fuente };
 }
