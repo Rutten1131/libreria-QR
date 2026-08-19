@@ -277,12 +277,20 @@ export async function eliminarInstancia(instanceName: string): Promise<void> {
 export function validarWebhookEvolution(payload: any): {
   instanceName: string;
   numero: string;
+  messageId?: string;
   pushName?: string;
   texto?: string;
   imagenBase64?: string;
   mimeType?: 'image/jpeg' | 'image/png' | 'image/webp';
 } | null {
-  // Ignorar eventos que no son de mensajes entrantes
+  // 1. Filtrar estrictamente por tipo de evento: SOLO procesar cuando un mensaje es nuevo (upsert)
+  // Ignorar 'messages.update' (visto / leído / entregado), 'connection.update', etc.
+  const event = String(payload?.event || '').toLowerCase();
+  if (event && !event.includes('upsert')) {
+    return null;
+  }
+
+  // 2. Ignorar eventos que no son de mensajes entrantes
   if (!payload?.data?.key?.remoteJid) return null;
   if (payload.data.key.fromMe) return null; // Ignorar mensajes enviados por el bot
 
@@ -290,6 +298,7 @@ export function validarWebhookEvolution(payload: any): {
   const remoteJid: string = payload.data.key.remoteJid;
   if (remoteJid.includes('@g.us')) return null; // Ignorar grupos
   const numero = remoteJid.split('@')[0];
+  const messageId = payload?.data?.key?.id || undefined;
 
   const msg = payload.data.message || {};
   const messageType = payload.data?.messageType || '';
@@ -360,6 +369,7 @@ export function validarWebhookEvolution(payload: any): {
   return {
     instanceName: instance,
     numero,
+    messageId,
     pushName: pushName ? String(pushName).trim() : undefined,
     texto: texto ? String(texto).trim() : undefined,
     imagenBase64: imagenBase64 ? String(imagenBase64) : undefined,
