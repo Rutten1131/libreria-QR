@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractPagesFromPdf } from '@/lib/pdfHelper';
+import { descargarProformaDirectoPdf } from '@/lib/generateProformaPdf';
 
 interface TenantInfo {
   id: string;
@@ -381,7 +382,28 @@ export default function PedirWebPage() {
       }
 
       const data = await res.json();
-      setCotizacion(data);
+
+      // Si ya existía una cotización previa y estamos agregando más cosas, combinamos los items
+      setCotizacion((prev) => {
+        if (!prev || !prev.items || prev.items.length === 0) {
+          return data;
+        }
+
+        const itemsCombinados = [...prev.items, ...(data.items || [])];
+        const encontrados = itemsCombinados.filter((i) => i.disponible).length;
+        const total = itemsCombinados.reduce(
+          (sum, i) => sum + (i.disponible ? i.precio_unitario * (i.cantidad || 1) : 0),
+          0
+        );
+
+        return {
+          items: itemsCombinados,
+          total,
+          totalItems: itemsCombinados.length,
+          encontrados,
+        };
+      });
+
       setPaso('resumen');
     } catch (e: any) {
       setError(e.message || 'No se pudo cotizar la lista. Intenta nuevamente.');
@@ -452,155 +474,34 @@ export default function PedirWebPage() {
     }
   };
 
-  // Generar y descargar proforma PDF con datos dinámicos del negocio y pedido
+  // Generar y descargar proforma directa en archivo PDF (sin precios unitarios)
   const descargarPdfProforma = () => {
     if (!cotizacion) return;
 
-    const fechaHoy = new Date().toLocaleDateString('es-EC', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    const itemsDisponibles = cotizacion.items
+      .filter((i) => i.disponible)
+      .map((i) => ({
+        nombre: i.nombre_encontrado || i.item,
+        cantidad: i.cantidad || 1,
+      }));
+
+    const itemsFaltantes = cotizacion.items
+      .filter((i) => !i.disponible)
+      .map((i) => ({
+        nombre: i.item,
+      }));
+
+    descargarProformaDirectoPdf({
+      nombreLibreria: tenant?.nombre || 'Librería & Papelería',
+      telefonoLibreria: tenant?.telefono,
+      direccionLibreria: tenant?.direccion,
+      pedidoId: pedidoId || undefined,
+      clienteNombre: clienteNombre.trim() || undefined,
+      clienteTelefono: clienteTelefono.trim() || undefined,
+      itemsDisponibles,
+      itemsFaltantes,
+      total: cotizacion.total,
     });
-
-    const itemsDisponibles = cotizacion.items.filter((i) => i.disponible);
-    const itemsFaltantes = cotizacion.items.filter((i) => !i.disponible);
-
-    const filasHtml = itemsDisponibles
-      .map(
-        (it, idx) => `
-      <tr>
-        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #475569; font-size: 12px;">${idx + 1}</td>
-        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">
-          ${it.nombre_encontrado || it.item}
-        </td>
-        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 700; color: #0f172a;">${it.cantidad || 1}</td>
-        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #475569;">$${it.precio_unitario.toFixed(2)}</td>
-        <td style="padding: 9px 10px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: #0f172a;">$${((it.cantidad || 1) * it.precio_unitario).toFixed(2)}</td>
-      </tr>
-    `
-      )
-      .join('');
-
-    const faltantesHtml =
-      itemsFaltantes.length > 0
-        ? `
-      <div style="margin-top: 24px; padding: 14px 18px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px;">
-        <h4 style="margin: 0 0 8px 0; color: #b45309; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">⚠️ Artículos no disponibles en stock (${itemsFaltantes.length})</h4>
-        <ul style="margin: 0; padding-left: 18px; color: #78350f; font-size: 12px; line-height: 1.6;">
-          ${itemsFaltantes.map((f) => `<li>${f.item}</li>`).join('')}
-        </ul>
-      </div>
-    `
-        : '';
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Proforma Oficial - ${nombreLibreria}</title>
-        <style>
-          @page { size: A4; margin: 15mm; }
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; padding: 25px; font-size: 13px; line-height: 1.4; background: #fff; }
-          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 20px; }
-          .brand-title { font-size: 26px; font-weight: 800; color: #0f172a; margin: 0; text-transform: uppercase; letter-spacing: -0.5px; }
-          .brand-sub { font-size: 13px; color: #64748b; margin: 3px 0 0 0; }
-          .order-meta { text-align: right; }
-          .badge { display: inline-block; background: #0f172a; color: #fff; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; letter-spacing: 0.5px; }
-          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8fafc; padding: 14px 18px; border-radius: 8px; margin-bottom: 22px; border: 1px solid #e2e8f0; }
-          .info-box strong { display: block; font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 3px; letter-spacing: 0.5px; }
-          .info-box span { font-size: 14px; font-weight: 600; color: #1e293b; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th { background: #f1f5f9; padding: 10px 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1; letter-spacing: 0.5px; }
-          .totals-wrap { margin-top: 24px; display: flex; justify-content: flex-end; }
-          .totals-table { width: 320px; }
-          .totals-table td { padding: 8px 10px; }
-          .total-row td { border-top: 2px solid #0f172a; font-size: 18px; font-weight: 800; color: #0f172a; }
-          .footer { margin-top: 45px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 18px; font-size: 11px; color: #94a3b8; }
-          @media print {
-            body { padding: 0; }
-            .no-print { display: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div>
-            <h1 class="brand-title">${nombreLibreria}</h1>
-            <p class="brand-sub">Proforma Oficial de Cotización de Útiles Escolares</p>
-            ${tenant?.telefono ? `<p style="margin: 3px 0 0 0; color: #475569; font-size: 12px;">📱 WhatsApp: +${tenant.telefono}</p>` : ''}
-            ${tenant?.direccion ? `<p style="margin: 2px 0 0 0; color: #475569; font-size: 12px;">📍 ${tenant.direccion}</p>` : ''}
-          </div>
-          <div class="order-meta">
-            <span class="badge">PROFORMA DE COMPRA</span>
-            <p style="margin: 6px 0 0 0; font-weight: 700; font-size: 14px;">#${pedidoId ? pedidoId.slice(-8).toUpperCase() : 'COTIZACION'}</p>
-            <p style="margin: 2px 0 0 0; color: #64748b; font-size: 11px;">${fechaHoy}</p>
-          </div>
-        </div>
-
-        <div class="info-grid">
-          <div class="info-box">
-            <strong>Cliente / Solicitante:</strong>
-            <span>${clienteNombre || 'Cliente WhatsApp'}</span>
-          </div>
-          <div class="info-box" style="text-align: right;">
-            <strong>Contacto / WhatsApp:</strong>
-            <span>${clienteTelefono || 'WhatsApp'}</span>
-          </div>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 35px; text-align: center;">#</th>
-              <th>Descripción del Material / Útil</th>
-              <th style="width: 60px; text-align: center;">Cant.</th>
-              <th style="width: 90px; text-align: right;">P. Unit</th>
-              <th style="width: 90px; text-align: right;">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filasHtml}
-          </tbody>
-        </table>
-
-        ${faltantesHtml}
-
-        <div class="totals-wrap">
-          <table class="totals-table">
-            <tr>
-              <td style="color: #64748b;">Útiles disponibles:</td>
-              <td style="text-align: right; font-weight: 600;">${cotizacion.encontrados} de ${cotizacion.totalItems}</td>
-            </tr>
-            <tr class="total-row">
-              <td>TOTAL ESTIMADO:</td>
-              <td style="text-align: right;">$${cotizacion.total.toFixed(2)}</td>
-            </tr>
-          </table>
-        </div>
-
-        <div class="footer">
-          <p style="margin: 0;">Esta proforma tiene una validez de 5 días sujeta a disponibilidad física de inventario en local.</p>
-          <p style="margin: 4px 0 0 0;">Generado automáticamente por el Sistema de Cotizaciones de <strong>${nombreLibreria}</strong></p>
-        </div>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() { window.print(); }, 200);
-          }
-        </script>
-      </body>
-      </html>
-    `;
-
-    const printWin = window.open('', '_blank');
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(htmlContent);
-      printWin.document.close();
-    }
   };
 
   if (loadingTenant) {
@@ -782,15 +683,13 @@ export default function PedirWebPage() {
             </div>
           )}
 
-          {/* ── PASO 2: COTIZANDO CON IA ── */}
+          {/* ── PASO 2: ESPERANDO COTIZACIÓN ── */}
           {paso === 'cotizando' && (
             <div className="lqr-loading-card">
-              <div className="lqr-ai-pulse-icon">🤖</div>
-              <h3 className="lqr-loading-title">Analizando tu lista de útiles...</h3>
+              <div className="lqr-ai-pulse-icon">⏳</div>
+              <h3 className="lqr-loading-title">¡Espéranos un momento!</h3>
               <p className="lqr-loading-sub">
-                {fotos.length > 1
-                  ? `La Inteligencia Artificial está leyendo tus ${fotos.length} fotos y cotejando con el inventario de ${nombreLibreria}.`
-                  : `La Inteligencia Artificial está verificando los precios y stock en ${nombreLibreria}.`}
+                Estamos cotizando tu lista de útiles escolares con el inventario de <strong>{nombreLibreria}</strong>. Esto puede tomar hasta 2 minutos.
               </p>
               <div className="lqr-progress-bar">
                 <div className="lqr-progress-bar__fill" />
@@ -798,59 +697,124 @@ export default function PedirWebPage() {
             </div>
           )}
 
-          {/* ── PASO 3: RESUMEN Y CONFIRMAR PEDIDO ── */}
+          {/* ── PASO 3: RESUMEN MINIMALISTA Y CONFIRMAR PEDIDO ── */}
           {paso === 'resumen' && cotizacion && (
             <div className="lqr-step-card">
               <div className="lqr-summary-header">
                 <div>
                   <h3 className="lqr-summary-title">Resumen de tu Cotización</h3>
-                  <span className="lqr-summary-count">
-                    {cotizacion.encontrados} de {cotizacion.totalItems} útiles disponibles
-                  </span>
+                  <p style={{ margin: '4px 0 0 0', color: '#94a3b8', fontSize: '13px' }}>
+                    Hemos procesado tu lista escolar con nuestro stock en tienda.
+                  </p>
                 </div>
                 <div className="lqr-summary-actions-zone">
                   <button
                     type="button"
                     className="lqr-btn-pdf-header"
                     onClick={descargarPdfProforma}
-                    title="Descargar proforma en PDF"
+                    title="Descargar proforma en archivo PDF"
                   >
                     📄 Descargar PDF
                   </button>
-                  <div className="lqr-summary-total-badge">
-                    <span>Total a pagar:</span>
-                    <strong>${cotizacion.total.toFixed(2)}</strong>
-                  </div>
                 </div>
               </div>
 
-              {/* Lista de productos cotizados */}
-              <div className="lqr-items-list">
-                {cotizacion.items.map((item, idx) => (
-                  <div key={idx} className={`lqr-item-row ${!item.disponible ? 'lqr-item-row--out' : ''}`}>
-                    <div className="lqr-item-info">
-                      <strong className="lqr-item-name">{item.nombre_encontrado || item.item}</strong>
-                      <span className="lqr-item-orig">
-                        {item.disponible
-                          ? `Buscado: "${item.item}" · Cant: ${item.cantidad || 1} ($${item.precio_unitario.toFixed(2)} c/u)`
-                          : `No disponible en tienda · Buscado: "${item.item}"`}
-                      </span>
-                    </div>
-
-                    <div className="lqr-item-price-zone">
-                      {item.disponible ? (
-                        <span className="lqr-item-price">${(item.precio_unitario * (item.cantidad || 1)).toFixed(2)}</span>
-                      ) : (
-                        <span className="lqr-item-out">⚠️ Agotado</span>
-                      )}
-                    </div>
+              {/* Métricas Minimalistas de la Cotización */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: '12px',
+                  margin: '20px 0',
+                }}
+              >
+                <div
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    borderRadius: '10px',
+                    padding: '14px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: '22px' }}>✅</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#34d399', marginTop: '4px' }}>
+                    {cotizacion.encontrados}
                   </div>
-                ))}
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>Útiles en stock</div>
+                </div>
+
+                <div
+                  style={{
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.25)',
+                    borderRadius: '10px',
+                    padding: '14px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: '22px' }}>⚠️</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#fbbf24', marginTop: '4px' }}>
+                    {Math.max(0, cotizacion.totalItems - cotizacion.encontrados)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>No disponibles</div>
+                </div>
+
+                <div
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.08)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    borderRadius: '10px',
+                    padding: '14px',
+                    textAlign: 'center',
+                    gridColumn: 'span 1',
+                  }}
+                >
+                  <span style={{ fontSize: '22px' }}>💰</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#60a5fa', marginTop: '4px' }}>
+                    ${cotizacion.total.toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>Total estimado</div>
+                </div>
+              </div>
+
+              {/* Acciones principales: Descargar PDF o Seguir Agregando */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '22px' }}>
+                <button
+                  type="button"
+                  className="lqr-btn-pdf"
+                  style={{ width: '100%', padding: '14px', fontSize: '15px', fontWeight: 700 }}
+                  onClick={descargarPdfProforma}
+                >
+                  📄 Descargar Proforma Oficial en PDF
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    color: '#34d399',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onClick={() => {
+                    setFotos([]);
+                    setTextoLista('');
+                    setPaso('subir');
+                  }}
+                >
+                  ➕ Seguir agregando más útiles o fotos a esta cotización
+                </button>
               </div>
 
               {/* Formulario de confirmación */}
               <form onSubmit={handleConfirmarPedido} className="lqr-order-form">
-                <h4 className="lqr-form-title">Completa tus datos para preparar el pedido:</h4>
+                <h4 className="lqr-form-title">Completa tus datos para preparar tu pedido:</h4>
 
                 <div className="lqr-fields-grid">
                   <div className="lqr-field">
@@ -888,17 +852,15 @@ export default function PedirWebPage() {
                   </button>
                   <button
                     type="button"
-                    className="lqr-btn-pdf"
-                    onClick={descargarPdfProforma}
-                  >
-                    📄 Descargar Proforma Oficial en PDF
-                  </button>
-                  <button
-                    type="button"
                     className="lqr-btn-back"
-                    onClick={() => setPaso('subir')}
+                    onClick={() => {
+                      setCotizacion(null);
+                      setFotos([]);
+                      setTextoLista('');
+                      setPaso('subir');
+                    }}
                   >
-                    ← Volver a subir fotos
+                    🔄 Empezar una nueva cotización desde cero
                   </button>
                 </div>
               </form>

@@ -1,54 +1,60 @@
 // Adapter de Inteligencia Artificial para LibreríaQR (Vision OCR + Parsing)
-// Proveedor principal: NVIDIA NIM (NVIDIA Inference Microservices)
-// Cascade defensivo: Si un modelo falla o tarda más de 10s, pasa automáticamente al siguiente.
+// Proveedores: Groq (primario, ultra-rápido) + NVIDIA NIM (fallback)
+// Cascade defensivo: Si un modelo falla o tarda, pasa automáticamente al siguiente.
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 export interface ModeloPerfil {
   id: string;
   vision: boolean;
-  proveedor: 'nvidia' | 'mistral';
+  proveedor: 'nvidia' | 'groq';
   descripcion: string;
   temperature: number;
+  timeoutMs: number; // timeout específico por modelo
 }
 
 const MODELOS: Record<string, ModeloPerfil> = {
   // === OCR / Vision ===
+  GROQ_LLAMA_VISION: {
+    id: 'llama-3.2-90b-vision-preview',
+    vision: true,
+    proveedor: 'groq',
+    descripcion: 'Groq Llama 3.2 90B Vision — ultra-rápido (<3s).',
+    temperature: 0.01,
+    timeoutMs: 25000,
+  },
   LLAMA_VISION: {
     id: 'meta/llama-3.2-11b-vision-instruct',
     vision: true,
     proveedor: 'nvidia',
-    descripcion: 'Llama 3.2 11B Vision ultrarrápido (< 1s).',
+    descripcion: 'NVIDIA Llama 3.2 11B Vision (fallback).',
     temperature: 0.01,
-  },
-  NEMOTRON_OMNI: {
-    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
-    vision: true,
-    proveedor: 'nvidia',
-    descripcion: 'Nemotron omni (fallback con razonamiento).',
-    temperature: 0.01,
+    timeoutMs: 25000,
   },
 
   // === Chat / Texto ===
+  GROQ_LLAMA_TEXT: {
+    id: 'llama-3.1-70b-versatile',
+    vision: false,
+    proveedor: 'groq',
+    descripcion: 'Groq Llama 3.1 70B — texto principal ultra-rápido.',
+    temperature: 0.01,
+    timeoutMs: 20000,
+  },
   NEMOTRON_ULTRA: {
     id: 'nvidia/nemotron-3-ultra-550b-a55b',
     vision: false,
     proveedor: 'nvidia',
-    descripcion: 'Nemotron Ultra 550B. Modelo de texto principal.',
+    descripcion: 'Nemotron Ultra 550B. Fallback de texto NVIDIA.',
     temperature: 0.01,
-  },
-  MISTRAL_NEMOTRON: {
-    id: 'mistralai/mistral-nemotron',
-    vision: false,
-    proveedor: 'mistral',
-    descripcion: 'Mistral Nemotron. Fallback de texto.',
-    temperature: 0.01,
+    timeoutMs: 25000,
   },
 };
 
-// === Orden de cascade ===
-const CASCADE_VISION = ['LLAMA_VISION', 'NEMOTRON_OMNI'];
-const CASCADE_TEXT = ['NEMOTRON_ULTRA', 'MISTRAL_NEMOTRON'];
+// === Orden de cascade (Groq primero = más rápido) ===
+const CASCADE_VISION = ['GROQ_LLAMA_VISION', 'LLAMA_VISION'];
+const CASCADE_TEXT = ['GROQ_LLAMA_TEXT', 'NEMOTRON_ULTRA'];
 
 export type Fuente = keyof typeof MODELOS;
 
@@ -63,12 +69,19 @@ export interface LLMResult {
   fuente: Fuente;
 }
 
-function getApiKey(): string {
-  const key = process.env.NVIDIA_API_KEY;
-  if (!key) {
-    throw new Error('NVIDIA_API_KEY no esta en .env');
+function getApiKey(proveedor: 'nvidia' | 'groq'): string {
+  if (proveedor === 'groq') {
+    const key = process.env.GROQ_API_KEY;
+    if (!key) throw new Error('GROQ_API_KEY no esta en .env');
+    return key;
   }
+  const key = process.env.NVIDIA_API_KEY;
+  if (!key) throw new Error('NVIDIA_API_KEY no esta en .env');
   return key;
+}
+
+function getApiUrl(proveedor: 'nvidia' | 'groq'): string {
+  return proveedor === 'groq' ? GROQ_API_URL : NVIDIA_API_URL;
 }
 
 async function backoffRetry<T>(
@@ -103,7 +116,8 @@ async function llamarModelo(
   body: any
 ): Promise<{ content: string; fuente: Fuente }> {
   const modelo = MODELOS[modeloKey];
-  const apiKey = getApiKey();
+  const apiKey = getApiKey(modelo.proveedor);
+  const apiUrl = getApiUrl(modelo.proveedor);
 
   const payload = {
     ...body,
@@ -112,10 +126,11 @@ async function llamarModelo(
   };
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout estricto
+  const timeoutId = setTimeout(() => controller.abort(), modelo.timeoutMs);
 
   try {
-    const response = await fetch(NVIDIA_API_URL, {
+    const inicio = Date.now();
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -138,6 +153,9 @@ async function llamarModelo(
     if (texto.length === 0) {
       throw new Error(`${modeloKey} devolvio respuesta vacia`);
     }
+
+    const duracion = Date.now() - inicio;
+    console.log(`[iaAdapter] ${modeloKey} respondio en ${duracion}ms (${texto.length} chars)`);
 
     return { content: texto, fuente: modeloKey };
   } finally {
@@ -218,11 +236,11 @@ export async function transcribirMultiplesImagenesOCR(
   imagenes: Array<{ base64: string; mimeType?: 'image/jpeg' | 'image/png' | 'image/webp' }>
 ): Promise<OCRResult> {
   if (imagenes.length === 0) {
-    return { texto: '', confianza: 'baja', fuente: 'LLAMA_VISION' };
+    return { texto: '', confianza: 'baja', fuente: 'GROQ_LLAMA_VISION' };
   }
 
   const todasLasLineas: string[] = [];
-  let ultimaFuente: Fuente = 'LLAMA_VISION';
+  let ultimaFuente: Fuente = 'GROQ_LLAMA_VISION';
 
   for (const img of imagenes) {
     try {

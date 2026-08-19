@@ -84,6 +84,12 @@ export async function POST(req: NextRequest) {
 
     // 3. Procesar lista de útiles (cuando envían la foto/PDF tras el QR)
     try {
+      // Mensaje inmediato al cliente para avisarle que estamos trabajando en su lista
+      await enviarMensaje(datos.instanceName, {
+        numero: datos.numero,
+        texto: `⏳ *¡Recibimos tu lista escolar!* 📚\n\nPor favor espéranos un momento (~2 minutos), estamos cotizando tus útiles escolares con nuestro inventario en stock...`,
+      });
+
       const resultado = await procesarListaCliente({
         tenantId: tenantIdReal,
         clienteNombre: datos.pushName || 'Cliente WhatsApp',
@@ -95,23 +101,12 @@ export async function POST(req: NextRequest) {
 
       const itemsDisponibles = resultado.cotizacion?.items || [];
       const faltantes = resultado.cotizacion?.ambiguos || [];
-
-      // Listar todos los materiales encontrados con cantidades y precios
-      const lineasDisponibles = itemsDisponibles
-        .map((it) => `• ${it.cantidad}x ${it.nombre} — $${(it.precioUnitario * it.cantidad).toFixed(2)}`)
-        .join('\n');
-
-      // Listar los materiales que no se encontraron en la tienda
-      const lineasFaltantes = faltantes.length > 0
-        ? `\n\n⚠️ *No disponibles en stock (${faltantes.length}):*\n` + faltantes.map((f) => `• ${f}`).join('\n')
-        : '';
-
       const totalFormateado = resultado.cotizacion?.total ? `$${resultado.cotizacion.total.toFixed(2)}` : '$0.00';
       const pedidoNum = resultado.pedido?.id ? `#${resultado.pedido.id.slice(-6)}` : '';
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://libreria-qr-brown.vercel.app';
       const linkPublico = `${appUrl}/pedir/${tenantIdReal}?pedido=${resultado.pedido?.id}`;
 
-      const resumen = `📋 *Cotización de Útiles Escolares* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n✅ *Materiales Disponibles en Tienda:*\n${lineasDisponibles || '• Ninguno emparejado automáticamente'}${lineasFaltantes}\n\n━━━━━━━━━━━━━━━━━━━━\n📦 *${itemsDisponibles.length} útiles encontrados* | ⚠️ *${faltantes.length} no disponibles*\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n━━━━━━━━━━━━━━━━━━━━\n\n📄 *Ver desglose completo o descargar proforma:*\n${linkPublico}\n\n_Tu pedido ya fue registrado en el sistema. En breve un asesor te escribirá para confirmar tu entrega o retiro._`;
+      const resumen = `📋 *Cotización de Útiles Escolares* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n✅ *${itemsDisponibles.length} útiles encontrados en stock*\n⚠️ *${faltantes.length} artículos no disponibles en tienda*\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n\n📄 *Ver cotización o descargar proforma en PDF:*\n${linkPublico}\n\n_Tu pedido ya fue registrado en el sistema. En breve un asesor te escribirá para confirmar tu entrega o retiro._`;
 
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
