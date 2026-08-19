@@ -345,31 +345,28 @@ REGLAS ESTRICTAS:
  */
 export async function interpretarTexto(
   textoLibre: string,
-  inventarioDisponible: string[]
+  _inventarioDisponible?: string[]
 ): Promise<LLMResult> {
-  const catalogoTexto = inventarioDisponible.map((n) => `- ${n}`).join('\n');
+  const prompt = `Eres un parser experto de listas de útiles escolares.
+Tu único trabajo es limpiar el texto y extraer cada útil escolar con su cantidad exactamente como el cliente lo escribió.
 
-  const prompt = `Eres un parser de pedidos de útiles escolares. Tu trabajo es extraer items y cantidades.
-
-CATALOGO DISPONIBLE EN TIENDA (si hay coincidencia cercana, usa este nombre exacto):
-${catalogoTexto}
+REGLAS ESTRICTAS:
+- NO inventes ni sustituyas ningún producto por otro.
+- Conserva el nombre original del útil escolar (ej. "caja de marcadores doble punta de 12 colores", "block de papel iris").
+- Si no tiene número de cantidad explícito, usa 1.
+- Formato estricto de salida: cantidad|nombre_original
+- NADA de explicaciones, saludos ni comentarios. Solo las líneas cantidad|nombre.
 
 TEXTO DE LA LISTA:
 """
 ${textoLibre}
 """
 
-REGLAS OBLIGATORIAS:
-- Extrae cada útil con su cantidad.
-- Si no dice cantidad, usa 1.
-- Formato estricto de salida: cantidad|nombre
-- NADA de explicaciones, saludos ni comentarios. Solo las líneas cantidad|nombre.
-
 Ejemplo de salida:
-1|Cuaderno parvulario cosido 100 hojas de lineas
-1|Cuaderno parvulario cosido 100 hojas de cuadros
-1|Carpeta tipo sobre broche plastico duro
-3|Lapices delgados triplus HB`;
+1|cuaderno parvulario cosido 100 hojas de lineas
+1|cuaderno parvulario cosido 100 hojas de cuadros
+1|carpeta tipo sobre broche plastico duro
+3|lapices delgados triplus HB`;
 
   let ultimoError: unknown;
 
