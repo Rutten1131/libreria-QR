@@ -1,11 +1,5 @@
-/**
- * variantService.ts
- * Motor de resolución de variantes y ambigüedades.
- * Cruza el conocimiento general de papelería (/server/knowledge/)
- * con el inventario REAL del tenant en stock para generar preguntas precisas.
- */
-
 import { buscarCategoriaParaItem, CategoriaConocimiento } from '../knowledge/index';
+import { corregirTypos, formatearOpcionesNumeradas, limpiarNombreERP } from './displayService';
 
 export interface CandidatoProducto {
   id: string;
@@ -23,10 +17,12 @@ export interface ResultadoAmbiguedad {
 }
 
 /**
- * Normaliza un texto para comparaciones sin tildes ni caracteres extraños
+ * Normaliza un texto para comparaciones sin tildes ni caracteres extraños,
+ * aplicando primero la corrección de errores tipográficos frecuentes.
  */
-function norm(texto: string): string {
-  return texto
+export function norm(texto: string): string {
+  const corregido = corregirTypos(texto || '');
+  return corregido
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -36,15 +32,195 @@ function norm(texto: string): string {
 }
 
 /**
+ * Extrae cantidades expresadas en lenguaje natural ecuatoriano/cotidiano
+ * ej: "una docena" -> 12, "media docena" -> 6, "un par" -> 2, "3 cuadernos" -> 3
+ */
+export function extraerCantidadNatural(texto: string): number | null {
+  const t = norm(texto);
+
+  if (t.includes('media docena') || t.includes('1/2 docena')) return 6;
+  if (t.includes('una docena') || t.includes('1 docena') || t.includes('la docena') || t.includes('docena')) return 12;
+  if (t.includes('dos docenas') || t.includes('2 docenas')) return 24;
+  if (t.includes('tres docenas') || t.includes('3 docenas')) return 36;
+  if (t.includes('un par') || t.includes('par de')) return 2;
+  if (t.includes('un ciento') || t.includes('ciento')) return 100;
+  if (t.includes('medio ciento')) return 50;
+
+  // Buscar dígitos explícitos (ej. "3 cuadernos", "10 unidades", "12")
+  const match = t.match(/\b(\d+)\b/);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    // Ignorar si parece año o número de modelo gigante (>1000)
+    if (num > 0 && num <= 500) return num;
+  }
+
+  // Palabras numerales simples
+  if (/\b(un|uno|una)\b/.test(t)) return 1;
+  if (/\b(dos)\b/.test(t)) return 2;
+  if (/\b(tres)\b/.test(t)) return 3;
+  if (/\b(cuatro)\b/.test(t)) return 4;
+  if (/\b(cinco)\b/.test(t)) return 5;
+  if (/\b(seis)\b/.test(t)) return 6;
+  if (/\b(diez)\b/.test(t)) return 10;
+  if (/\b(doce)\b/.test(t)) return 12;
+  if (/\b(veinte)\b/.test(t)) return 20;
+
+  return null;
+}
+
+/**
+ * Filtra candidatos de inventario estrictamente por la categoría/familia solicitada,
+ * evitando que palabras genéricas como números coincidan con productos de otra familia.
+ */
+export function filtrarCandidatosPorCategoria(
+  categoria: CategoriaConocimiento | null,
+  textoItem: string,
+  inventario: CandidatoProducto[]
+): CandidatoProducto[] {
+  const textoNorm = norm(textoItem);
+  const disparadores = categoria?.disparadores.map(norm) || [];
+
+  // 1. Filtrar productos que pertenezcan a la familia o tengan el sustantivo principal
+  let candidatos = inventario.filter((p) => {
+    // Si tiene precio ridículo o placeholder (< 0.15) de ERP corrupto, descartar a menos que no haya más
+    if (p.precio < 0.15 && inventario.some((otro) => otro.precio >= 0.50)) {
+      return false;
+    }
+
+    const pNombre = norm(p.nombre);
+    const pFam = norm(p.familia || '');
+
+    if (categoria) {
+      const matchFamilia = pFam.includes(categoria.familia) || categoria.familia.includes(pFam);
+      const matchDisparador = disparadores.some((d) => pNombre.includes(d));
+      return matchFamilia || matchDisparador;
+    }
+
+    // Si no hay categoría definida, coincidencia de palabras significativas (>3 letras)
+    const tokens = textoNorm.split(' ').filter((t) => t.length > 3 && !['para', 'con', 'las', 'los', 'unas', 'unos'].includes(t));
+    return tokens.some((t) => pNombre.includes(t));
+  });
+
+  // 2. Si el texto tiene atributos específicos (cuadros, lineas, espiral, 100h, etc.), filtrar más fino
+  if (textoNorm.includes('cuadro') || textoNorm.includes('cdrs') || textoNorm.includes('cdros')) {
+    const filtrados = candidatos.filter((p) => {
+      const pn = norm(p.nombre);
+      return pn.includes('cuadro') || pn.includes('cdrs') || pn.includes('cdros') || pn.includes('cd ');
+    });
+    if (filtrados.length > 0) candidatos = filtrados;
+  } else if (textoNorm.includes('linea') || textoNorm.includes('1l')) {
+    const filtrados = candidatos.filter((p) => {
+      const pn = norm(p.nombre);
+      return pn.includes('linea') || pn.includes('1l');
+    });
+    if (filtrados.length > 0) candidatos = filtrados;
+  }
+
+  if (textoNorm.includes('espiral') || textoNorm.includes('anillad') || textoNorm.includes('esp')) {
+    const filtrados = candidatos.filter((p) => {
+      const pn = norm(p.nombre);
+      return pn.includes('espiral') || pn.includes('anillad') || pn.includes('esp');
+    });
+    if (filtrados.length > 0) candidatos = filtrados;
+  } else if (textoNorm.includes('cosido')) {
+    const filtrados = candidatos.filter((p) => {
+      const pn = norm(p.nombre);
+      return pn.includes('cosido') || pn.includes('parvulario');
+    });
+    if (filtrados.length > 0) candidatos = filtrados;
+  }
+
+  if (textoNorm.includes('100') || textoNorm.includes('100h')) {
+    const filtrados = candidatos.filter((p) => norm(p.nombre).includes('100'));
+    if (filtrados.length > 0) candidatos = filtrados;
+  } else if (textoNorm.includes('50') || textoNorm.includes('50h')) {
+    const filtrados = candidatos.filter((p) => norm(p.nombre).includes('50'));
+    if (filtrados.length > 0) candidatos = filtrados;
+  }
+
+  return candidatos;
+}
+
+/**
+ * Resuelve la opción elegida por el cliente a partir de su respuesta en lenguaje natural:
+ * - Por precio: "el de 3.50", "el de $3.40" (fuzzy matching de precio cercano)
+ * - Por orden: "el primero", "el segundo", "el 1", "opción 2"
+ * - Por marca o palabra clave: "Stanford", "Norma", "Jean Book", "el más barato"
+ */
+export function resolverSeleccionOpcion(
+  textoRespuesta: string,
+  opcionesPresentadas: CandidatoProducto[]
+): CandidatoProducto | null {
+  if (!opcionesPresentadas || opcionesPresentadas.length === 0) return null;
+
+  const t = norm(textoRespuesta);
+
+  // 1. Coincidencia por orden o posición
+  if (/\b(primero|primera|el 1|opcion 1|1ero|1ra)\b/.test(t) && opcionesPresentadas.length >= 1) {
+    return opcionesPresentadas[0];
+  }
+  if (/\b(segundo|segunda|el 2|opcion 2|2do|2da)\b/.test(t) && opcionesPresentadas.length >= 2) {
+    return opcionesPresentadas[1];
+  }
+  if (/\b(tercero|tercera|el 3|opcion 3|3ro|3ra)\b/.test(t) && opcionesPresentadas.length >= 3) {
+    return opcionesPresentadas[2];
+  }
+  if (/\b(cuarto|cuarta|el 4|opcion 4|4to|4ta)\b/.test(t) && opcionesPresentadas.length >= 4) {
+    return opcionesPresentadas[3];
+  }
+  if (/\b(ultimo|ultima|el ultimo)\b/.test(t)) {
+    return opcionesPresentadas[opcionesPresentadas.length - 1];
+  }
+
+  // 2. Coincidencia por "el más barato" o "económico"
+  if (/\b(barato|economico|mas economico|menor precio)\b/.test(t)) {
+    return [...opcionesPresentadas].sort((a, b) => a.precio - b.precio)[0];
+  }
+
+  // 3. Coincidencia por precio numérico (ej. "el de 3.50", "el de $3.40", "3.80")
+  const matchPrecio = t.match(/(\d+[.,]\d{1,2}|\b\d+\b)/);
+  if (matchPrecio) {
+    const precioBuscado = parseFloat(matchPrecio[1].replace(',', '.'));
+    if (!isNaN(precioBuscado) && precioBuscado > 0) {
+      // Buscar la opción con precio más cercano (tolerancia +/- 0.30)
+      let mejorOpcion: CandidatoProducto | null = null;
+      let menorDiferencia = 999;
+
+      for (const opc of opcionesPresentadas) {
+        const diff = Math.abs(opc.precio - precioBuscado);
+        if (diff < menorDiferencia && diff <= 0.35) {
+          menorDiferencia = diff;
+          mejorOpcion = opc;
+        }
+      }
+
+      if (mejorOpcion) return mejorOpcion;
+    }
+  }
+
+  // 4. Coincidencia por marca o palabra clave (ej. "Stanford", "Norma", "Jean Book", "Pelikan")
+  for (const opc of opcionesPresentadas) {
+    const opcNorm = norm(opc.nombre);
+    const palabrasOpc = opcNorm.split(' ').filter((w) => w.length > 3 && !['cuaderno', 'universitario', 'hojas', 'cosido', 'espiral'].includes(w));
+    for (const w of palabrasOpc) {
+      if (t.includes(w)) {
+        return opc;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Determina si el texto del cliente ya contiene todas las especificaciones necesarias
- * para evitar hacer preguntas innecesarias cuando el cliente fue súper claro.
  */
 function esDetalleCompleto(itemTexto: string, cat: CategoriaConocimiento): boolean {
   const textoNorm = norm(itemTexto);
 
   if (cat.familia === 'cuaderno') {
-    const tieneRayado = ['cuadro', 'linea', 'dibujo', 'blanco'].some((r) => textoNorm.includes(r));
-    const tieneTipo = ['cosido', 'espiral', 'grapado', 'parvulario'].some((t) => textoNorm.includes(t));
+    const tieneRayado = ['cuadro', 'linea', 'dibujo', 'blanco', 'cdrs', 'cdros', '1l', '4l'].some((r) => textoNorm.includes(r));
+    const tieneTipo = ['cosido', 'espiral', 'grapado', 'parvulario', 'anillad', 'esp'].some((t) => textoNorm.includes(t));
     return tieneRayado && tieneTipo;
   }
 
@@ -65,11 +241,12 @@ function esDetalleCompleto(itemTexto: string, cat: CategoriaConocimiento): boole
 
 /**
  * Analiza un ítem pedido por el cliente contra el inventario real del tenant.
- * Devuelve si es ambiguo y la pregunta enriquecida con las opciones REALES en stock.
+ * Devuelve si es ambiguo y la pregunta enriquecida con las opciones REALES en stock numeradas.
  */
 export function detectarAmbiguedad(
   itemTexto: string,
-  candidatosEnStock: CandidatoProducto[]
+  candidatosEnStock: CandidatoProducto[],
+  cantidad?: number
 ): ResultadoAmbiguedad {
   if (!candidatosEnStock || candidatosEnStock.length <= 1) {
     return { esAmbiguo: false, opcionesDisponibles: candidatosEnStock || [] };
@@ -82,25 +259,26 @@ export function detectarAmbiguedad(
     return { esAmbiguo: false, categoria, opcionesDisponibles: candidatosEnStock };
   }
 
-  // Filtrar y tomar máximo 4 opciones más representativas para no saturar WhatsApp
-  const opcionesTop = candidatosEnStock.slice(0, 4);
-  const opcionesTexto = opcionesTop
-    .map((opc) => `• *${opc.nombre}* ($${opc.precio.toFixed(2)})`)
-    .join('\n');
+  // Filtrar candidatos para evitar productos con precios corruptos o de otra familia
+  const candidatosLimpios = candidatosEnStock.filter((p) => p.precio >= 0.15 || candidatosEnStock.length === 1);
+  const opcionesParaMostrar = candidatosLimpios.length > 0 ? candidatosLimpios : candidatosEnStock;
 
-  let pregunta = `Para *${itemTexto}*, tenemos varias opciones en stock:\n${opcionesTexto}\n👉 ¿Cuál de estas prefieres?`;
+  // Filtrar y tomar máximo 4 opciones más representativas
+  const opcionesTop = opcionesParaMostrar.slice(0, 4);
+  const opcionesTexto = formatearOpcionesNumeradas(opcionesTop, cantidad);
+
+  let pregunta = `Para *${itemTexto}*, tenemos estas opciones en stock:\n\n${opcionesTexto}`;
 
   if (categoria) {
-    // Buscar la dimensión prioritaria que no esté clara
     const dimensionNoResuelta = categoria.dimensiones.find((dim) => {
       const textoNorm = norm(itemTexto);
       return !dim.opciones.some((opc) => textoNorm.includes(norm(opc)));
     });
 
     if (dimensionNoResuelta?.pregunta) {
-      pregunta = `Para *${itemTexto}*, ${dimensionNoResuelta.pregunta}\n\nTenemos en stock:\n${opcionesTexto}`;
+      pregunta = `Para *${itemTexto}*, ${dimensionNoResuelta.pregunta}\n\n${opcionesTexto}`;
     } else if (categoria.preguntaGenerica) {
-      pregunta = `${categoria.preguntaGenerica}\n\nOpciones disponibles en tienda:\n${opcionesTexto}`;
+      pregunta = `${categoria.preguntaGenerica}\n\n${opcionesTexto}`;
     }
   }
 

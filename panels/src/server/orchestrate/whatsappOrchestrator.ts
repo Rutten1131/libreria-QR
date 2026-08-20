@@ -23,7 +23,6 @@ import { getInventarioAsync } from '../adapters/inventarioAdapter';
 import { cotizar } from '../services/matchingService';
 import { Cotizacion, Pedido } from '../domain/entities';
 import { crearPedido } from '../services/pedidoService';
-import { detectarAmbiguedad } from '../services/variantService';
 
 export interface EntradaCliente {
   tenantId: string;
@@ -195,65 +194,153 @@ export async function procesarListaCliente(
   };
 }
 
+import {
+  detectarAmbiguedad,
+  extraerCantidadNatural,
+  filtrarCandidatosPorCategoria,
+  resolverSeleccionOpcion,
+  CandidatoProducto,
+} from '../services/variantService';
+import { buscarCategoriaParaItem } from '../knowledge/index';
+
 /**
- * Procesa mensajes de texto del cliente buscando si hay ambigüedades en pedidos cortos (1-2 útiles).
- * Si hay variantes que necesitan aclaración, devuelve la pregunta con las opciones reales en stock.
+ * Procesa mensajes de texto del cliente manteniendo memoria del contexto conversacional.
+ * Resuelve ambigüedades, selecciones de opciones (por precio, orden o marca) y cantidades naturales ("docena", etc.).
  */
 export async function procesarTextoConversacional(
   tenantId: string,
   textoCliente: string,
   clienteNombre: string,
-  clienteTelefono: string
+  clienteTelefono: string,
+  contextoPrevio?: any
 ): Promise<
-  | { tipo: 'pregunta_variante'; textoPregunta: string }
-  | { tipo: 'cotizacion'; resultado: ResultadoOrquestacion }
+  | {
+      tipo: 'pregunta_variante';
+      textoPregunta: string;
+      nuevoContexto: Record<string, any>;
+    }
+  | {
+      tipo: 'cotizacion';
+      resultado: ResultadoOrquestacion;
+      nuevoContexto: Record<string, any>;
+    }
 > {
   const inventario = await getInventarioAsync(tenantId);
-  const nombresInventario = inventario.map((p) => p.nombre);
+  const textoLimpio = textoCliente.trim();
 
-  let itemsParseados: Array<{ cantidad: number; nombre: string }> = [];
-  try {
-    const parseo = await interpretarTexto(textoCliente, nombresInventario);
-    itemsParseados = parsearLineasGroq(parseo.texto, textoCliente);
-  } catch {
-    itemsParseados = parsearLineasGroq('', textoCliente);
+  // 1. Verificar si el usuario está respondiendo a opciones presentadas anteriormente
+  const opcionesPrevias: CandidatoProducto[] = contextoPrevio?.opcionesPresentadas || [];
+  const cantidadPrevia = contextoPrevio?.cantidad || 1;
+  const cantEnTexto = extraerCantidadNatural(textoLimpio);
+  const cantidadFinal = cantEnTexto || cantidadPrevia || 1;
+
+  if (opcionesPrevias.length > 0) {
+    const seleccion = resolverSeleccionOpcion(textoLimpio, opcionesPrevias);
+
+    if (seleccion) {
+      // El cliente seleccionó una opción concreta (ej. "el de 3.50", "el primero", "Stanford")
+      const cotizacion = await cotizar(tenantId, [
+        { nombre: seleccion.nombre, cantidad: cantidadFinal },
+      ]);
+
+      const pedido = await crearPedido(
+        cotizacion,
+        clienteNombre,
+        clienteTelefono,
+        'whatsapp'
+      );
+
+      return {
+        tipo: 'cotizacion',
+        resultado: {
+          paso: 'pedido_creado',
+          cotizacion,
+          pedido,
+        },
+        nuevoContexto: {
+          pedidoId: pedido.id,
+          total: cotizacion.total,
+          itemsCount: cotizacion.items.length,
+          productoConfirmado: seleccion.nombre,
+          cantidad: cantidadFinal,
+        },
+      };
+    }
   }
 
-  if (itemsParseados.length === 0) {
-    itemsParseados = parsearLineasGroq('', textoCliente);
+  // 2. Si hay una consulta previa y el cliente está agregando especificaciones (ej. "a cuadros", "espiral", "docena")
+  const queryBase = contextoPrevio?.queryAcumulada
+    ? `${contextoPrevio.queryAcumulada} ${textoLimpio}`
+    : textoLimpio;
+
+  const categoria = buscarCategoriaParaItem(queryBase);
+
+  // Filtrar candidatos estrictamente de la categoría y atributos mencionados
+  const candidatos = filtrarCandidatosPorCategoria(categoria, queryBase, inventario);
+
+  // Detectar si aún hay ambigüedad entre las opciones encontradas (pasando cantidadFinal para formatear lotes)
+  const resAmb = detectarAmbiguedad(queryBase, candidatos, cantidadFinal);
+
+  if (resAmb.esAmbiguo && resAmb.opcionesDisponibles.length > 1) {
+    return {
+      tipo: 'pregunta_variante',
+      textoPregunta: `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o si deseas agregar algún otro útil escolar._`,
+      nuevoContexto: {
+        queryAcumulada: queryBase,
+        cantidad: cantidadFinal,
+        opcionesPresentadas: resAmb.opcionesDisponibles,
+      },
+    };
   }
 
-  // Si son 1 o 2 ítems, verificar si alguno tiene ambigüedad y requiere aclaración
-  if (itemsParseados.length >= 1 && itemsParseados.length <= 2) {
-    for (const item of itemsParseados) {
-      const itemNorm = item.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const tokens = itemNorm.split(' ').filter((t) => t.length > 2);
+  // Si ya no hay ambigüedad o hay una opción clara, cotizar la lista/producto
+  let itemsParaCotizar: Array<{ cantidad: number; nombre: string }> = [];
 
-      const candidatos = inventario.filter((p) => {
-        const pNorm = p.nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        return tokens.some((t) => pNorm.includes(t));
-      });
+  if (candidatos.length === 1 || (candidatos.length > 1 && !resAmb.esAmbiguo)) {
+    itemsParaCotizar = [{ cantidad: cantidadFinal, nombre: candidatos[0].nombre }];
+  } else {
+    // Parser Groq estándar para listas compuestas
+    const nombresInventario = inventario.map((p) => p.nombre);
+    try {
+      const parseo = await interpretarTexto(textoLimpio, nombresInventario);
+      itemsParaCotizar = parsearLineasGroq(parseo.texto, textoLimpio);
+    } catch {
+      itemsParaCotizar = parsearLineasGroq('', textoLimpio);
+    }
 
-      const resAmb = detectarAmbiguedad(item.nombre, candidatos);
-      if (resAmb.esAmbiguo && resAmb.preguntaSugerida) {
-        return {
-          tipo: 'pregunta_variante',
-          textoPregunta: `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o si deseas agregar algún otro útil escolar._`,
-        };
+    if (itemsParaCotizar.length === 0) {
+      // Fallback: si tenía cantidad y producto previo
+      if (contextoPrevio?.opcionesPresentadas?.length > 0 && cantEnTexto) {
+        itemsParaCotizar = [
+          { cantidad: cantEnTexto, nombre: contextoPrevio.opcionesPresentadas[0].nombre },
+        ];
+      } else {
+        itemsParaCotizar = [{ cantidad: cantidadFinal, nombre: textoLimpio }];
       }
     }
   }
 
-  // Si no hay ambigüedades o es una lista más larga, cotizar normalmente
-  const resultado = await procesarListaCliente({
-    tenantId,
+  const cotizacion = await cotizar(tenantId, itemsParaCotizar);
+  const pedido = await crearPedido(
+    cotizacion,
     clienteNombre,
     clienteTelefono,
-    textoOriginal: textoCliente,
-  });
+    'whatsapp'
+  );
 
   return {
     tipo: 'cotizacion',
-    resultado,
+    resultado: {
+      paso: 'pedido_creado',
+      cotizacion,
+      pedido,
+    },
+    nuevoContexto: {
+      pedidoId: pedido.id,
+      total: cotizacion.total,
+      itemsCount: cotizacion.items.length,
+      queryAcumulada: queryBase,
+      cantidad: cantidadFinal,
+    },
   };
 }

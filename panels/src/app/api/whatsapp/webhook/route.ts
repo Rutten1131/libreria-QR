@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
 import { procesarListaCliente, procesarTextoConversacional } from '@/server/orchestrate/whatsappOrchestrator';
 import { validarWebhookEvolution, enviarMensaje } from '@/server/adapters/evolutionAdapter';
+import { limpiarNombreERP, generarSugerenciaVentaCruzada } from '@/server/services/displayService';
 import {
   obtenerConversacion,
   crearConversacion,
@@ -270,10 +271,21 @@ export async function POST(req: NextRequest) {
           tenantIdReal,
           textoLimpio,
           datos.pushName || 'Cliente WhatsApp',
-          datos.numero
+          datos.numero,
+          conv?.contexto
         );
 
+        if (!conv) {
+          conv = await crearConversacion(tenantIdReal, datos.numero);
+        }
+
         if (convRes.tipo === 'pregunta_variante') {
+          await actualizarConversacion(conv.id, {
+            estadoActual: 'RESOLVIENDO_VARIANTES',
+            requiereHumano: false,
+            contexto: { ...(conv?.contexto || {}), ...(convRes.nuevoContexto || {}) },
+          });
+
           await enviarMensaje(datos.instanceName, {
             numero: datos.numero,
             texto: convRes.textoPregunta,
@@ -288,13 +300,12 @@ export async function POST(req: NextRequest) {
         const totalFormateado = cot?.total ? `$${cot.total.toFixed(2)}` : '$0.00';
         const pedidoNum = ped?.id ? `#${ped.id.slice(-6)}` : '';
 
-        if (!conv) {
-          conv = await crearConversacion(tenantIdReal, datos.numero);
-        }
         await actualizarConversacion(conv.id, {
           estadoActual: 'CONFIRMANDO_COTIZACION',
           requiereHumano: false,
           contexto: {
+            ...(conv?.contexto || {}),
+            ...(convRes.nuevoContexto || {}),
             pedidoId: ped?.id,
             total: cot?.total || 0,
             itemsCount: cot?.items?.length || 0,
@@ -302,10 +313,14 @@ export async function POST(req: NextRequest) {
         });
 
         const itemsTexto = (cot?.items || [])
-          .map((i) => `• [${i.cantidad}x] *${i.nombre}* ($${i.precioUnitario.toFixed(2)})`)
+          .map((i) => `• [${i.cantidad}x] *${limpiarNombreERP(i.nombre)}* ($${i.precioUnitario.toFixed(2)})`)
           .join('\n');
 
-        const resumenTexto = `📋 *Cotización de Útiles* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
+        const nombresItems = (cot?.items || []).map((i) => i.nombre);
+        const sugerencia = generarSugerenciaVentaCruzada(nombresItems);
+        const textoSugerencia = sugerencia ? sugerencia.textoSugerencia : '';
+
+        const resumenTexto = `📋 *Cotización de Útiles* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*${textoSugerencia}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
 
         await enviarMensaje(datos.instanceName, {
           numero: datos.numero,
@@ -349,7 +364,11 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const resumen = `📋 *Cotización de Útiles Escolares* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n✅ *${itemsDisponibles.length} útiles encontrados en stock*\n⚠️ *${faltantes.length} artículos no disponibles en tienda*\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n\n👉 *¿Deseas confirmar tu pedido con estos útiles?*\nResponde *SÍ* para confirmar tu pedido o envíanos cualquier duda o cambio.`;
+      const nombresItems = itemsDisponibles.map((i: any) => i.nombre);
+      const sugerencia = generarSugerenciaVentaCruzada(nombresItems);
+      const textoSugerencia = sugerencia ? sugerencia.textoSugerencia : '';
+
+      const resumen = `📋 *Cotización de Útiles Escolares* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n✅ *${itemsDisponibles.length} útiles encontrados en stock*\n⚠️ *${faltantes.length} artículos no disponibles en tienda*\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*${textoSugerencia}\n\n👉 *¿Deseas confirmar tu pedido con estos útiles?*\nResponde *SÍ* para confirmar tu pedido o envíanos cualquier duda o cambio.`;
 
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
