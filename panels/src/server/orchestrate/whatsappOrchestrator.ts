@@ -202,6 +202,7 @@ import {
   CandidatoProducto,
 } from '../services/variantService';
 import { buscarCategoriaParaItem } from '../knowledge/index';
+import { esListaCompuestaUtil } from '../services/displayService';
 
 /**
  * Procesa mensajes de texto del cliente manteniendo memoria del contexto conversacional.
@@ -230,10 +231,7 @@ export async function procesarTextoConversacional(
 
   // 0. Detectar si es una lista compuesta con múltiples útiles escolares
   // (ej. "media docena de esferos, 2 cuadernos... y una goma")
-  const tieneComas = textoLimpio.includes(',');
-  const tieneSaltos = textoLimpio.includes('\n');
-  const tieneConectoresLista = /\b(y|ademas|tambien)\s+(un|una|dos|tres|\d+)\b/i.test(textoLimpio);
-  const esListaCompuesta = tieneComas || tieneSaltos || (textoLimpio.split(' ').length > 6 && tieneConectoresLista);
+  const esListaCompuesta = esListaCompuestaUtil(textoLimpio);
 
   if (esListaCompuesta) {
     const resultado = await procesarListaCliente({

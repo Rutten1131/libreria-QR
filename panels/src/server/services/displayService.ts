@@ -184,6 +184,9 @@ function cantidadAPalabra(cantidad: number): string {
 
 const TYPOS_COMUNES: Record<string, string> = {
   // Errores de teclado muy comunes en español
+  'tiennes': 'tienes',
+  'tiens': 'tienes',
+  'tienen': 'tienen',
   'dicena': 'docena',
   'dosena': 'docena',
   'dosenas': 'docenas',
@@ -239,6 +242,49 @@ const TYPOS_COMUNES: Record<string, string> = {
   'temepra': 'témpera',
   'acuarla': 'acuarela',
 };
+
+/**
+ * Determina de forma precisa si un mensaje es una lista escolar multi-producto
+ * (ej. "3 cuadernos, 2 esferos y 1 goma") o una consulta de un solo producto (ej. "Hola, tienes cuadernos de 100 hojas?").
+ */
+export function esListaCompuestaUtil(texto: string): boolean {
+  let t = corregirTypos(texto || '').toLowerCase();
+
+  // 1. Eliminar saludos iniciales con coma para no falsificar lista
+  t = t.replace(/^(hola|buenas|buenos dias|buenas tardes|buenas noches|estimados|saludos)[,.\s]+/i, '').trim();
+
+  // 2. Si tiene saltos de línea con contenido en varias líneas
+  const lineas = t.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+  if (lineas.length >= 2) return true;
+
+  // 3. Contar sustantivos de papelería distintos mencionados
+  const keywordsPapeleria = [
+    'cuaderno', 'cuadernos', 'libreta', 'agenda',
+    'esfero', 'esferos', 'boligrafo', 'boligrafos', 'lapiz', 'lapices', 'resaltador', 'marcador',
+    'goma', 'silicona', 'pegamento', 'tijera', 'tijeras', 'regla', 'juego geometrico', 'compas',
+    'borrador', 'sacapuntas', 'corrector',
+    'carpeta', 'carpetas', 'archivador', 'funda', 'separador',
+    'pintura', 'pinturas', 'tempera', 'acuarela', 'pincel',
+    'cartulina', 'papel', 'fomix', 'plastilina', 'escarcha', 'resma'
+  ];
+
+  let conteoKeywords = 0;
+  for (const kw of keywordsPapeleria) {
+    const regex = new RegExp(`\\b${kw}\\b`, 'i');
+    if (regex.test(t)) {
+      conteoKeywords++;
+    }
+  }
+
+  // Si menciona al menos 2 categorías distintas (ej. "esferos" y "cuadernos"), es lista multi-producto
+  if (conteoKeywords >= 2) return true;
+
+  // Si tiene comas separando artículos con cantidades (ej. "2 cuadernos, 3 lápices")
+  const partes = t.split(',');
+  if (partes.length >= 3) return true;
+
+  return false;
+}
 
 /**
  * Limpia frases conversacionales introductorias ("tienes", "quiero", "necesito")
