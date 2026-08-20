@@ -521,7 +521,7 @@ export async function generarRespuestaVentas(
   nombreLibreria: string = 'Librería Prueba'
 ): Promise<RespuestaAgenteVentas> {
   const stockTexto = productosEnStock
-    .map((p, i) => `${i + 1}. [ID: ${p.id}] ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
+    .map((p, i) => `${i + 1}. ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
     .join('\n');
 
   const systemPrompt = `Eres el asistente y vendedor estrella de "${nombreLibreria}" en WhatsApp (Ecuador).
@@ -549,6 +549,11 @@ ORDEN SAGRADO DE ATENCIÓN EN EL MOSTRADOR:
    - "accion": "COTIZAR_PEDIDO" ➔ ÚNICAMENTE cuando el cliente haya elegido claramente una opción (ej. "la 2", "el de Norma", "el 1 y quiero 12").
 
 4. CANTIDAD vs ATRIBUTO: "100 hojas" es el modelo. "Una docena" = 12 unidades. Si dice "la 2, cuánto sería la docena?", la cantidad es 12 y el producto elegido es el 2.
+
+5. REGLAS DE FORMATO DEL MENSAJE:
+   - NUNCA incluyas códigos internos, IDs, UUIDs ni datos técnicos en tu mensaje. El cliente solo debe ver nombres de productos, precios y emojis.
+   - NUNCA digas "¡Hola!" ni saludes de nuevo si ya hay historial de conversación previo. Solo saluda en tu PRIMER mensaje al cliente.
+   - Sé directo y natural, como un vendedor real que ya está hablando contigo.
 
 FORMATO DE SALIDA ESTRICTO EN JSON:
 {
@@ -600,9 +605,12 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
     console.warn('[iaAdapter] Error en agente de ventas:', e?.message);
   }
 
+  const fallbackOpciones = productosEnStock
+    .map((p, i) => `${i + 1}️⃣ ${p.nombre} ($${p.precio.toFixed(2)} c/u)`)
+    .join('\n');
   return {
     accion: 'RESPONDER_CHAT',
-    mensaje_whatsapp: `¡Con gusto te ayudamos! Tenemos estas opciones en stock:\n\n${stockTexto}\n\n¿Cuál de estas prefieres?`,
+    mensaje_whatsapp: `¡Con gusto te ayudamos! Tenemos estas opciones en stock:\n\n${fallbackOpciones}\n\n¿Cuál de estas prefieres?`,
     producto_elegido_index: null,
     cantidad: 1,
   };
