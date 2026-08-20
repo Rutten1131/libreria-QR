@@ -502,3 +502,97 @@ Clasifica la intención del último mensaje. JSON:`;
     items_lista: [],
   };
 }
+
+export interface RespuestaAgenteVentas {
+  accion: 'RESPONDER_CHAT' | 'COTIZAR_PEDIDO';
+  mensaje_whatsapp: string;
+  producto_elegido_index?: number | null;
+  cantidad?: number | null;
+}
+
+/**
+ * Agente de Ventas Inteligente para WhatsApp.
+ * Genera respuestas 100% humanas y comerciales manteniendo el hilo y guiando al cliente con sentido común.
+ */
+export async function generarRespuestaVentas(
+  historial: Array<{ role: 'user' | 'model'; texto: string }>,
+  ultimoMensajeCliente: string,
+  productosEnStock: Array<{ id: string; nombre: string; precio: number; marca?: string }>,
+  nombreLibreria: string = 'Librería Prueba'
+): Promise<RespuestaAgenteVentas> {
+  const stockTexto = productosEnStock
+    .map((p, i) => `${i + 1}. [ID: ${p.id}] ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
+    .join('\n');
+
+  const systemPrompt = `Eres el asistente y vendedor estrella de "${nombreLibreria}" en WhatsApp (Ecuador).
+Tu personalidad es amable, atenta, rápida y con sentido común comercial.
+
+TIENES ACCESO AL STOCK EN TIENDA:
+${stockTexto || '(No se encontraron productos coincidentes)'}
+
+REGLAS DE ORO:
+1. MANTÉN EL HILO DE LA CONVERSACIÓN: Si el cliente hace una pregunta de aclaración (ej. "¿escolar de cuáles tienes?", "¿a cuánto sale?", "opciones de espiral", "ya te dije a cuadros"), responde directamente a su duda basándote en los productos en stock.
+   - NUNCA repitas preguntas genéricas si el cliente ya te dijo lo que buscaba (ej. si ya dijo que quería cuadros y espiral, no vuelvas a preguntar si cuadros o líneas).
+   - NUNCA inventes que el cliente eligió un producto antes de que lo indique expresamente (ej. "el 2", "la 1", "Norma", "el de $3.50", "dame una docena del primero").
+2. CUÁNDO RESPONDER vs CUÁNDO COTIZAR:
+   - "accion": "RESPONDER_CHAT" ➔ Cuando el cliente está preguntando, pidiendo opciones, aclarando dudas o protestando. Explícale con amabilidad y déjale las opciones claras numeradas con 1️⃣, 2️⃣, 3️⃣ para que él elija.
+   - "accion": "COTIZAR_PEDIDO" ➔ ÚNICAMENTE cuando el cliente haya elegido claramente una opción (ej. "la 2", "el de Norma", "el 1 y quiero 12").
+3. CANTIDAD vs ATRIBUTO: "100 hojas" es el modelo. "Una docena" = 12 unidades. Si dice "la 2, cuánto sería la docena?", la cantidad es 12 y el producto elegido es el 2.
+
+FORMATO DE SALIDA ESTRICTO EN JSON:
+{
+  "accion": "RESPONDER_CHAT" | "COTIZAR_PEDIDO",
+  "mensaje_whatsapp": string, // Tu mensaje formateado con negritas, emojis y saltos de línea listos para WhatsApp
+  "producto_elegido_index": number | null, // 1, 2, 3... o null
+  "cantidad": number | null // cantidad a comprar (ej. 12 para docena) o null
+}`;
+
+  const promptContents: any[] = [
+    { role: 'user', parts: [{ text: systemPrompt }] },
+    { role: 'model', parts: [{ text: 'Entendido. Hablaré como el vendedor humano de la librería, respondiendo siempre en JSON estricto.' }] },
+  ];
+
+  for (const msg of historial.slice(-6)) {
+    promptContents.push({
+      role: msg.role === 'model' ? 'model' : 'user',
+      parts: [{ text: msg.texto }],
+    });
+  }
+
+  promptContents.push({
+    role: 'user',
+    parts: [{ text: ultimoMensajeCliente }],
+  });
+
+  const apiKey = getApiKey('gemini');
+  const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: promptContents,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      }),
+    });
+
+    const json = await res.json();
+    const parsedText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (parsedText) {
+      return JSON.parse(parsedText) as RespuestaAgenteVentas;
+    }
+  } catch (e: any) {
+    console.warn('[iaAdapter] Error en agente de ventas:', e?.message);
+  }
+
+  return {
+    accion: 'RESPONDER_CHAT',
+    mensaje_whatsapp: `¡Con gusto te ayudamos! Tenemos estas opciones en stock:\n\n${stockTexto}\n\n¿Cuál de estas prefieres?`,
+    producto_elegido_index: null,
+    cantidad: 1,
+  };
+}

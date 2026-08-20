@@ -14,8 +14,12 @@ import {
   resolverSeleccionOpcion,
   CandidatoProducto,
 } from '../services/variantService';
+import {
+  interpretarIntencionSemantica,
+  IntencionSemantica,
+  generarRespuestaVentas,
+} from '../adapters/iaAdapter';
 import { buscarCategoriaParaItem } from '../knowledge/index';
-import { interpretarIntencionSemantica, IntencionSemantica } from '../adapters/iaAdapter';
 import { limpiarNombreERP, generarSugerenciaVentaCruzada } from '../services/displayService';
 
 export interface MensajeHistorial {
@@ -290,7 +294,7 @@ async function handleSeleccionOpcion(
   );
 }
 
-// ─── HANDLER 5: CONSULTA DE PRODUCTO Y VARIANTES ──────────────────────
+// ─── HANDLER 5: CONSULTA DE PRODUCTO Y VARIANTES CON AGENTE INTELIGENTE ───
 async function handleConsultaProducto(
   tenantId: string,
   clienteNombre: string,
@@ -308,40 +312,63 @@ async function handleConsultaProducto(
   const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
   const categoria = buscarCategoriaParaItem(queryBusqueda);
   const candidatos = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
-  const resAmb = detectarAmbiguedad(queryBusqueda, candidatos, cantidad);
 
-  // Si hay múltiples opciones, presentar las opciones claras con sus precios
-  if (resAmb.opcionesDisponibles.length > 1) {
-    const texto = `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o el número de opción para armarte el pedido._`;
+  // Limpiar nombres de los candidatos para que la IA los vea impecables
+  const candidatosLimpios = (candidatos.length > 0 ? candidatos : inventario.slice(0, 5)).map((c) => ({
+    id: c.id,
+    nombre: limpiarNombreERP(c.nombre),
+    precio: c.precio,
+  }));
+
+  const historial = contextoPrevio?.historialMensajes || [];
+
+  // Llamar al Agente de Ventas con memoria completa y stock real
+  const respVentas = await generarRespuestaVentas(
+    historial,
+    textoCliente,
+    candidatosLimpios
+  );
+
+  // Si el agente detecta que el cliente ya eligió una opción clara
+  if (respVentas.accion === 'COTIZAR_PEDIDO' && respVentas.producto_elegido_index && respVentas.producto_elegido_index <= candidatosLimpios.length) {
+    const itemElegido = candidatos[respVentas.producto_elegido_index - 1] || candidatos[0];
+    const cantFinal = respVentas.cantidad || cantidad;
+    const cotizacion = await cotizar(tenantId, [{ cantidad: cantFinal, nombre: itemElegido.nombre }]);
+    const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
+    const pedidoNum = `#${pedido.id.slice(-6)}`;
+    const nombreLimpio = limpiarNombreERP(itemElegido.nombre);
+
+    const sugerencia = generarSugerenciaVentaCruzada([itemElegido.nombre]);
+    const textoSug = sugerencia ? sugerencia.textoSugerencia : '';
+
+    const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n• [${cantFinal}x] *${nombreLimpio}* ($${cotizacion.items[0]?.precioUnitario.toFixed(2) || itemElegido.precio.toFixed(2)})\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
 
     return {
-      tipo: 'pregunta_variante',
+      tipo: 'cotizacion',
       textoRespuesta: texto,
       nuevoContexto: {
-        queryAcumulada: queryBusqueda,
-        cantidad,
-        opcionesPresentadas: resAmb.opcionesDisponibles,
-        productoSeleccionado: null,
+        pedidoId: pedido.id,
+        total: cotizacion.total,
+        itemsCount: 1,
+        productoSeleccionado: itemElegido,
+        cantidad: cantFinal,
+        opcionesPresentadas: [],
+        queryAcumulada: undefined,
       },
+      pedidoId: pedido.id,
+      total: cotizacion.total,
     };
   }
 
-  // Si hay 1 sola opción disponible
-  const itemElegido = resAmb.opcionesDisponibles.length === 1 ? resAmb.opcionesDisponibles[0] : (candidatos.length > 0 ? candidatos[0] : { id: 'custom', nombre: queryBusqueda, precio: 1.0 });
-  const nombreLimpio = limpiarNombreERP(itemElegido.nombre);
-  const totalLote = itemElegido.precio * cantidad;
-  const textoLote = cantidad > 1 ? `\n➔ Las ${cantidad} unidades te salen en *$${totalLote.toFixed(2)}*` : '';
-
-  const texto = `¡Con gusto! 📚✏️\n\nTenemos disponible:\n• *${nombreLimpio}* ($${itemElegido.precio.toFixed(2)} c/u)${textoLote}\n\n👉 *¿Deseas que te lo agregue a la cotización o prefieres buscar otra marca/modelo?*`;
-
+  // Si es conversación, duda o pregunta sobre opciones
   return {
     tipo: 'pregunta_variante',
-    textoRespuesta: texto,
+    textoRespuesta: respVentas.mensaje_whatsapp,
     nuevoContexto: {
       queryAcumulada: queryBusqueda,
       cantidad,
-      opcionesPresentadas: [itemElegido],
-      productoSeleccionado: itemElegido,
+      opcionesPresentadas: candidatos.slice(0, 4),
+      productoSeleccionado: null,
     },
   };
 }
