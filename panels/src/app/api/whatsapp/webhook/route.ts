@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
-import { procesarListaCliente } from '@/server/orchestrate/whatsappOrchestrator';
+import { procesarListaCliente, procesarTextoConversacional } from '@/server/orchestrate/whatsappOrchestrator';
 import { validarWebhookEvolution, enviarMensaje } from '@/server/adapters/evolutionAdapter';
 import {
   obtenerConversacion,
@@ -11,15 +11,16 @@ import {
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
+// Números autorizados para pruebas libres del bot en WhatsApp (sin necesidad de escanear QR)
+const NUMEROS_TEST_BOT = ['593963410409', '593983237491'];
+
 // Cache de deduplicación de mensajes procesados recientemente (evita duplicados si Evolution reintenta)
 const mensajesProcesados = new Map<string, number>();
 const ultimosMensajesPorNumero = new Map<string, number>();
 
-
 function esMensajeDuplicado(messageId?: string): boolean {
   if (!messageId) return false;
   const ahora = Date.now();
-  // Limpiar mensajes con más de 60 segundos
   for (const [id, ts] of mensajesProcesados.entries()) {
     if (ahora - ts > 60000) {
       mensajesProcesados.delete(id);
@@ -72,7 +73,6 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!tw) {
-      // Fallback: extraer slug de instancia (ej: qr_libreria_prueba -> libreria_prueba)
       const cleanSlug = datos.instanceName.replace(/^qr_/, '');
       const { data: fallbackTw } = await sb
         .from('tenant_whatsapp')
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     const tenantIdReal = tw.tenant_id;
 
-    // 2. Obtener datos del negocio (nombre y teléfono de notificación del asesor)
+    // 2. Obtener datos del negocio
     const { data: tenantObj } = await sb
       .from('tenants')
       .select('id, nombre, telefono')
@@ -101,6 +101,12 @@ export async function POST(req: NextRequest) {
     const telefonoAsesor = tenantObj?.telefono ? tenantObj.telefono.replace(/\D/g, '') : '';
     const textoLimpio = (datos.texto || '').trim();
     const tieneImagen = Boolean(datos.imagenBase64);
+
+    // Identificar si es número de prueba autorizado para interacción libre
+    const numeroLimpio = (datos.numero || '').replace(/\D/g, '');
+    const esNumeroPrueba = NUMEROS_TEST_BOT.some(
+      (num) => numeroLimpio.includes(num) || num.includes(numeroLimpio)
+    );
 
     // 3. Consultar o inicializar estado de la conversación con este cliente
     let conv = await obtenerConversacion(tenantIdReal, datos.numero);
@@ -123,16 +129,25 @@ export async function POST(req: NextRequest) {
 
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
-        texto: `⏸️ *Bot pausado en este chat.* Te hemos transferido con un asesor humano. El bot permanecerá en silencio hasta que escanees el código QR de la tienda nuevamente.`,
+        texto: `⏸️ *Bot pausado en este chat.* Te hemos transferido con un asesor humano. Escribe *reactivar* o envía una nueva consulta para volver a hablar con el asistente virtual.`,
       });
 
       return NextResponse.json({ ok: true, tipo: 'bot_pausado_manualmente' });
     }
 
-    // 5. Detectar si el mensaje es el inicio del flujo QR
+    // 5. Comando para reactivar bot si estaba pausado
+    const esComandoReactivar = /^(reactivar|activar|iniciar|comenzar|hola|buenas|buenas tardes|buenos dias)$/i.test(textoLimpio);
+    if (esComandoReactivar && conv?.requiereHumano && esNumeroPrueba) {
+      await actualizarConversacion(conv.id, {
+        estadoActual: 'CONFIRMANDO_LISTA',
+        requiereHumano: false,
+      });
+      conv.requiereHumano = false;
+    }
+
+    // 6. Detectar si el mensaje es el inicio del flujo QR
     const esMensajeQR = /quiero cotizar mi lista|quiero cotizar/i.test(textoLimpio);
 
-    // Si escanea el QR nuevamente, reiniciamos el handoff y la conversación
     if (esMensajeQR) {
       if (conv) {
         conv = await actualizarConversacion(conv.id, {
@@ -160,25 +175,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 6. Si la conversación está en HANDOFF (humano activo) y NO es escaneo de QR -> SILENCIO TOTAL
-    if (conv?.requiereHumano && !esMensajeQR) {
+    // 7. Si la conversación está en HANDOFF humano y no es número de prueba -> SILENCIO TOTAL
+    if (conv?.requiereHumano && !esMensajeQR && !esNumeroPrueba) {
       console.log(`[Webhook WhatsApp] Chat en handoff humano ignorado: ${datos.numero}`);
       return NextResponse.json({ ok: true, ignored: true, reason: 'en_handoff_humano' });
     }
 
-    // 7. Cooldown anti-spam por número (ignora retries automáticos en <8s)
+    // 8. Cooldown anti-spam por número
     const ultimoProceso = ultimosMensajesPorNumero.get(datos.numero);
     const ahora = Date.now();
-    if (ultimoProceso && ahora - ultimoProceso < 8000 && !esMensajeQR) {
+    if (ultimoProceso && ahora - ultimoProceso < 6000 && !esMensajeQR && !esNumeroPrueba) {
       console.log(`[Webhook WhatsApp] Ignorado por cooldown anti-spam (${ahora - ultimoProceso}ms): ${datos.numero}`);
       return NextResponse.json({ ok: true, ignored: true, reason: 'cooldown_activo' });
     }
     ultimosMensajesPorNumero.set(datos.numero, ahora);
 
-
-    // 6. Si el cliente está respondiendo para CONFIRMAR la cotización
+    // 9. Si el cliente está respondiendo para CONFIRMAR la cotización
     const esConfirmacionAfirmativa =
-      /^(s[ií]|si confirmo|confirmo|confirmar|de acuerdo|listo|dale|ok|si por favor|si deseo|si quiero|deseo confirmar|por favor|claro)/i.test(
+      /^(s[ií]|si confirmo|confirmo|confirmar|de acuerdo|listo|dale|ok|si por favor|si deseo|si quiero|deseo confirmar|por favor|claro)$/i.test(
         textoLimpio
       );
 
@@ -201,22 +215,22 @@ export async function POST(req: NextRequest) {
           .eq('id', pedidoId);
       }
 
-      // B) Marcar conversación en HANDOFF humano
+      // B) Marcar conversación en HANDOFF humano (o seguir activo si es número de prueba)
       await actualizarConversacion(conv.id, {
-        estadoActual: 'DERIVADO_A_HUMANO',
-        requiereHumano: true,
+        estadoActual: esNumeroPrueba ? 'CONFIRMANDO_LISTA' : 'DERIVADO_A_HUMANO',
+        requiereHumano: !esNumeroPrueba,
         contexto: { ...conv.contexto, confirmado: true },
       });
 
-      // C) Mensaje de confirmación al cliente con su enlace a la proforma
-      const msgConfirmacionCliente = `🎉 *¡Pedido Confirmado con Éxito!* 🎉\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n📄 *Ver cotización o descargar proforma en PDF:*\n${linkPublico}\n\n👩‍💼 _Un asesor de nuestra tienda ya fue notificado y se comunicará contigo por este chat para coordinar la entrega o retiro. ¡Muchas gracias por tu preferencia!_`;
+      // C) Mensaje de confirmación al cliente con enlace a proforma
+      const msgConfirmacionCliente = `🎉 *¡Pedido Confirmado con Éxito!* 🎉\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n📄 *Ver cotización o descargar proforma en PDF:*\n${linkPublico}\n\n👩‍💼 _Un asesor de nuestra tienda ya fue notificado y se comunicará contigo para coordinar la entrega o retiro. ¡Muchas gracias por tu preferencia!_`;
 
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
         texto: msgConfirmacionCliente,
       });
 
-      // D) Notificar por WhatsApp al número del ASESOR / DUEÑO del negocio
+      // D) Notificar al asesor/dueño
       if (telefonoAsesor && telefonoAsesor !== datos.numero.replace(/\D/g, '')) {
         const msgAsesor = `🔔 *¡Nuevo Pedido Confirmado!* 🔔\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n👤 *Cliente:* ${datos.pushName || 'Cliente WhatsApp'} (+${datos.numero})\n💰 *Total Estimado:* $${totalNum.toFixed(2)}\n\n📄 *Ver proforma y pedido:* \n${linkPublico}\n\n👉 _Por favor comunícate con el cliente para coordinar el despacho._`;
 
@@ -226,18 +240,82 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return NextResponse.json({ ok: true, tipo: 'pedido_confirmado_y_derivado_a_humano' });
+      return NextResponse.json({ ok: true, tipo: 'pedido_confirmado' });
     }
 
-    // 7. Si NO es la frase del QR, NI tiene imagen/PDF, NI es confirmación -> IGNORAR SILENCIOSAMENTE
-    if (!esMensajeQR && !tieneImagen) {
+    // 10. Si NO es QR, NI imagen/PDF, NI número de prueba autorizado -> IGNORAR
+    if (!esMensajeQR && !tieneImagen && !esNumeroPrueba) {
       console.log(`[Webhook WhatsApp] Chat ignorado (no es QR ni lista): "${textoLimpio.substring(0, 40)}"`);
       return NextResponse.json({ ok: true, ignored: true, reason: 'mensaje no escolar' });
     }
 
-    // 8. Procesar lista de útiles (imagen o texto tras el QR)
+    // 11. Detección de saludos para números de prueba (sin imagen)
+    const esSaludoSimple = /^(hola|buenas|buenos dias|buenas tardes|buenas noches|saludos|que tal|q tal)$/i.test(textoLimpio);
+    if (esSaludoSimple && !tieneImagen && esNumeroPrueba) {
+      const saludoMsg = `¡Hola ${datos.pushName || ''}! 👋 Bienvenido/a a *${nombreLibreria}* 📚✏️\n\n¿En qué te podemos ayudar hoy? Puedes enviarnos la *foto o PDF de tu lista de útiles* 📸📄, o escribirnos directamente los materiales que necesitas para cotizártelos con nuestro inventario en stock.`;
+      
+      await enviarMensaje(datos.instanceName, {
+        numero: datos.numero,
+        texto: saludoMsg,
+      });
+
+      return NextResponse.json({ ok: true, tipo: 'saludo_conversacional_test' });
+    }
+
+    // 12. PROCESAMIENTO INTELIGENTE (Conversacional / Variantes / Lista escolar)
     try {
-      // Mensaje inmediato al cliente para avisarle que estamos trabajando en su lista
+      // Si es solo texto corto de prueba, revisar variantes conversacionales
+      if (!tieneImagen && esNumeroPrueba && textoLimpio.length > 0) {
+        const convRes = await procesarTextoConversacional(
+          tenantIdReal,
+          textoLimpio,
+          datos.pushName || 'Cliente WhatsApp',
+          datos.numero
+        );
+
+        if (convRes.tipo === 'pregunta_variante') {
+          await enviarMensaje(datos.instanceName, {
+            numero: datos.numero,
+            texto: convRes.textoPregunta,
+          });
+
+          return NextResponse.json({ ok: true, tipo: 'pregunta_variante_enviada' });
+        }
+
+        // Si devolvió cotización directa
+        const cot = convRes.resultado.cotizacion;
+        const ped = convRes.resultado.pedido;
+        const totalFormateado = cot?.total ? `$${cot.total.toFixed(2)}` : '$0.00';
+        const pedidoNum = ped?.id ? `#${ped.id.slice(-6)}` : '';
+
+        if (!conv) {
+          conv = await crearConversacion(tenantIdReal, datos.numero);
+        }
+        await actualizarConversacion(conv.id, {
+          estadoActual: 'CONFIRMANDO_COTIZACION',
+          requiereHumano: false,
+          contexto: {
+            pedidoId: ped?.id,
+            total: cot?.total || 0,
+            itemsCount: cot?.items?.length || 0,
+          },
+        });
+
+        const itemsTexto = (cot?.items || [])
+          .map((i) => `• [${i.cantidad}x] *${i.nombre}* ($${i.precioUnitario.toFixed(2)})`)
+          .join('\n');
+
+        const resumenTexto = `📋 *Cotización de Útiles* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
+
+        await enviarMensaje(datos.instanceName, {
+          numero: datos.numero,
+          texto: resumenTexto,
+        });
+
+        return NextResponse.json({ ok: true, tipo: 'cotizacion_texto_enviada' });
+      }
+
+      // Si tiene imagen o PDF: aviso de cotización en progreso
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
         texto: `⏳ *¡Recibimos tu lista escolar!* 📚\n\nPor favor espéranos un momento (~2 minutos), estamos cotizando tus útiles escolares con nuestro inventario en stock...`,
@@ -257,7 +335,6 @@ export async function POST(req: NextRequest) {
       const totalFormateado = resultado.cotizacion?.total ? `$${resultado.cotizacion.total.toFixed(2)}` : '$0.00';
       const pedidoNum = resultado.pedido?.id ? `#${resultado.pedido.id.slice(-6)}` : '';
 
-      // Actualizar estado de la conversación a ESPERANDO_CONFIRMACION
       if (!conv) {
         conv = await crearConversacion(tenantIdReal, datos.numero);
       }
@@ -272,7 +349,6 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Mensaje de cotización solicitando confirmación al cliente
       const resumen = `📋 *Cotización de Útiles Escolares* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n✅ *${itemsDisponibles.length} útiles encontrados en stock*\n⚠️ *${faltantes.length} artículos no disponibles en tienda*\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*\n\n👉 *¿Deseas confirmar tu pedido con estos útiles?*\nResponde *SÍ* para confirmar tu pedido o envíanos cualquier duda o cambio.`;
 
       await enviarMensaje(datos.instanceName, {
@@ -289,8 +365,8 @@ export async function POST(req: NextRequest) {
     } catch (err: any) {
       console.warn('[Procesar Lista Error]', err.message);
 
-      if (tieneImagen || esMensajeQR) {
-        const msgError = `No pudimos leer los útiles en tu lista o foto. 📸\n\nPor favor envíanos una foto más nítida de tu lista escolar o escribe los materiales que necesitas. ¡Con gusto te cotizamos!`;
+      if (tieneImagen || esMensajeQR || esNumeroPrueba) {
+        const msgError = `No pudimos leer los útiles en tu mensaje o foto. 📸\n\nPor favor escribe los materiales que necesitas o envía una foto más nítida. ¡Con gusto te cotizamos!`;
 
         await enviarMensaje(datos.instanceName, {
           numero: datos.numero,
