@@ -441,6 +441,17 @@ REGLAS CRÍTICAS:
 
 7. SALUDO: ÚNICAMENTE si el mensaje es SOLO un saludo aislado (ej. "hola", "buenas", "buenos días") y NO contiene ninguna pregunta de producto. Si el cliente dice "Hola, tienes cuadernos..." o "Buenas tardes, necesito esferos", es SIEMPRE CONSULTA_PRODUCTO o LISTA_COMPUESTA.
 
+8. SELECCION DE OPCION POR MARCA, PERSONAJE O NUMERO:
+   Si se presentaron opciones al cliente (ej. una lista numerada 1, 2, ..., 13) y el cliente responde eligiendo una marca, personaje o número (ej. "Dame 2 del stitch", "el de avengers", "quiero el 4", "la de minnie"):
+   - "intencion": "SELECCION_OPCION"
+   - "cantidad_comprar": la cantidad que pidió (ej. 2 si dijo "Dame 2 del stitch", 1 por defecto).
+   - "opcion_elegida_index": el índice exacto (1-indexed) de ese producto en la lista de "OPCIONES ACTUALMENTE PRESENTADAS AL CLIENTE".
+
+9. AGREGAR A UN PEDIDO EXISTENTE (ACUMULAR LISTA):
+   Si el cliente ya tiene una cotización o producto elegido y dice "Y 3 de avengers", "agrégale 1 borrador", "también quiero 2 esferos":
+   - "intencion": "LISTA_COMPUESTA"
+   - "items_lista": DEBE incluir los productos previos ya cotizados en el historial MÁS el nuevo producto con sus cantidades.
+
 RESPONDE SIEMPRE en JSON EXACTO:
 {
   "intencion": "SALUDO" | "CONSULTA_PRODUCTO" | "SELECCION_OPCION" | "LISTA_COMPUESTA" | "CONFIRMACION" | "REINICIAR" | "OTRO",
@@ -448,7 +459,7 @@ RESPONDE SIEMPRE en JSON EXACTO:
   "especificaciones_acumuladas": "cuaderno 100 hojas cuadros espiral" | null,
   "cantidad_comprar": 1,
   "opcion_elegida_index": 1 | null,
-  "items_lista": [{ "nombre": "esfero azul", "cantidad": 6 }]
+  "items_lista": [{ "nombre": "cuaderno stitch 200 hojas", "cantidad": 2 }, { "nombre": "cuaderno avengers 200 hojas", "cantidad": 3 }]
 }`;
 
   const userPrompt = `HISTORIAL DE CONVERSACIÓN (más reciente al final):

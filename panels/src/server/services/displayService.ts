@@ -78,12 +78,38 @@ const ABREVIATURAS_ERP: Record<string, string> = {
 export function limpiarNombreERP(nombreCrudo: string): string {
   let nombre = nombreCrudo;
 
-  // 1. Reemplazar abreviaturas conocidas
-  for (const [abrev, reemplazo] of Object.entries(ABREVIATURAS_ERP)) {
-    // Case insensitive replacement
-    const regex = new RegExp(abrev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    nombre = nombre.replace(regex, reemplazo);
-  }
+  // 1. Reemplazar prefijos de inicio y palabras aisladas del ERP con límites de palabra estrictos
+  nombre = nombre
+    .replace(/^CA\s+/i, 'Cuaderno cosido ')
+    .replace(/\bCA\s+(?=\d|CD|1L|4L|ACAD|UNICO|GRANDE|MED)/gi, 'Cuaderno cosido ')
+    .replace(/^CM\s+/i, 'Cuaderno espiral ')
+    .replace(/\bCM\s+(?=\d|CD|1L|4L|ACAD|MED|ESP)/gi, 'Cuaderno espiral ')
+    .replace(/\bCD\s+/gi, 'cuadros ')
+    .replace(/\bCDRS\b/gi, 'cuadros')
+    .replace(/\bCDROS\b/gi, 'cuadros')
+    .replace(/\b1L\b/gi, 'líneas')
+    .replace(/\b4L\b/gi, '4 líneas')
+    .replace(/\bACAD\.?\s+/gi, 'académico ')
+    .replace(/\bDB\s+/gi, 'doble ')
+    .replace(/\bMED\s+/gi, 'mediano ')
+    .replace(/\bGDE\s+/gi, 'grande ')
+    .replace(/\bPEQ\s+/gi, 'pequeño ')
+    .replace(/\bESP\s+/gi, 'espiral ')
+    .replace(/\bANILL\.?\s+/gi, 'anillado ')
+    .replace(/C\/ESPONJA/gi, 'con esponja')
+    .replace(/C\/SEPARADORES?/gi, 'con separadores')
+    .replace(/C\/LIGA/gi, 'con liga')
+    .replace(/C\/LUZ/gi, 'con luz')
+    .replace(/C\/LLAVERO/gi, 'con llavero')
+    .replace(/P\/PINCHO/gi, 'tipo pincho')
+    .replace(/P\/BALSA/gi, 'de balsa')
+    .replace(/D\/ARTISTA/gi, 'de artista')
+    .replace(/E\/BARRA/gi, 'en barra')
+    .replace(/T\/LIBRETA/gi, 'tipo libreta')
+    .replace(/P\/DURA/gi, 'pasta dura')
+    .replace(/\bX(\d+)COL\b/gi, '$1 colores')
+    .replace(/\b(\d+)H\b/gi, '$1 hojas')
+    .replace(/\bBOLIG\.?\s+/gi, 'Bolígrafo ');
 
   // 2. Eliminar códigos basura
   for (const patron of PATRONES_BASURA) {

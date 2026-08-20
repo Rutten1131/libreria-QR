@@ -241,13 +241,17 @@ async function handleSeleccionOpcion(
   const opciones = contextoPrevio?.opcionesPresentadas || [];
   let seleccion: CandidatoProducto | null = null;
 
+  // 1. Intentar por índice numérico de la IA
   if (semantica.opcion_elegida_index && semantica.opcion_elegida_index <= opciones.length) {
     seleccion = opciones[semantica.opcion_elegida_index - 1];
-  } else if (opciones.length > 0) {
+  }
+
+  // 2. Intentar por nombre/marca/personaje en las opciones presentadas
+  if (!seleccion && opciones.length > 0) {
     seleccion = resolverSeleccionOpcion(textoCliente, opciones);
   }
 
-  // Si no hay opción en las previas pero había un producto seleccionado anteriormente y el usuario corrige cantidad
+  // 3. Si no hay opción en las previas pero había un producto seleccionado anteriormente y el usuario corrige cantidad
   if (!seleccion && contextoPrevio?.productoSeleccionado) {
     seleccion = contextoPrevio.productoSeleccionado;
   }
@@ -274,8 +278,9 @@ async function handleSeleccionOpcion(
         itemsCount: 1,
         productoSeleccionado: seleccion,
         cantidad,
-        opcionesPresentadas: [],
-        queryAcumulada: undefined,
+        // Mantener las opciones presentadas para que el usuario pueda elegir otra después
+        opcionesPresentadas: opciones,
+        queryAcumulada: contextoPrevio?.queryAcumulada,
       },
       pedidoId: pedido.id,
       total: cotizacion.total,
@@ -394,7 +399,7 @@ async function handleConsultaProducto(
     nuevoContexto: {
       queryAcumulada: queryBusqueda,
       cantidad,
-      opcionesPresentadas: listaOpciones.slice(0, 10),
+      opcionesPresentadas: listaOpciones,
       productoSeleccionado: null,
     },
   };
