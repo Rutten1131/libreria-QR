@@ -177,57 +177,65 @@ export function resolverSeleccionOpcion(
 
   const t = norm(textoRespuesta);
 
-  // 1. Coincidencia por orden o posición
-  if (/\b(primero|primera|el 1|opcion 1|1ero|1ra)\b/.test(t) && opcionesPresentadas.length >= 1) {
-    return opcionesPresentadas[0];
-  }
-  if (/\b(segundo|segunda|el 2|opcion 2|2do|2da)\b/.test(t) && opcionesPresentadas.length >= 2) {
-    return opcionesPresentadas[1];
-  }
-  if (/\b(tercero|tercera|el 3|opcion 3|3ro|3ra)\b/.test(t) && opcionesPresentadas.length >= 3) {
-    return opcionesPresentadas[2];
-  }
-  if (/\b(cuarto|cuarta|el 4|opcion 4|4to|4ta)\b/.test(t) && opcionesPresentadas.length >= 4) {
-    return opcionesPresentadas[3];
-  }
-  if (/\b(ultimo|ultima|el ultimo)\b/.test(t)) {
-    return opcionesPresentadas[opcionesPresentadas.length - 1];
+  // 1. Coincidencia por orden o posición (ej. "el 1", "el 10", "opcion 3", "la 2")
+  const matchIndex = t.match(/\b(?:el|la|opcion|numero|num|opc)?\s*(\d{1,2})\b/);
+  if (matchIndex) {
+    const idx = parseInt(matchIndex[1], 10);
+    // Solo interpretar como índice si el texto es claramente una selección ordinal
+    if (t.startsWith('el ') || t.startsWith('la ') || t.startsWith('opcion ') || t.startsWith('opc ') || /^\d{1,2}$/.test(t.trim())) {
+      if (idx >= 1 && idx <= opcionesPresentadas.length) {
+        return opcionesPresentadas[idx - 1];
+      }
+    }
   }
 
-  // 2. Coincidencia por "el más barato" o "económico"
+  // 2. Coincidencia por palabras ordinales directas
+  if (/\b(primero|primera|1ero|1ra)\b/.test(t) && opcionesPresentadas.length >= 1) return opcionesPresentadas[0];
+  if (/\b(segundo|segunda|2do|2da)\b/.test(t) && opcionesPresentadas.length >= 2) return opcionesPresentadas[1];
+  if (/\b(tercero|tercera|3ro|3ra)\b/.test(t) && opcionesPresentadas.length >= 3) return opcionesPresentadas[2];
+  if (/\b(cuarto|cuarta|4to|4ta)\b/.test(t) && opcionesPresentadas.length >= 4) return opcionesPresentadas[3];
+  if (/\b(quinto|quinta|5to|5ta)\b/.test(t) && opcionesPresentadas.length >= 5) return opcionesPresentadas[4];
+  if (/\b(sexto|sexta|6to|6ta)\b/.test(t) && opcionesPresentadas.length >= 6) return opcionesPresentadas[5];
+  if (/\b(septimo|septima|7mo|7ma)\b/.test(t) && opcionesPresentadas.length >= 7) return opcionesPresentadas[6];
+  if (/\b(octavo|octava|8vo|8va)\b/.test(t) && opcionesPresentadas.length >= 8) return opcionesPresentadas[7];
+  if (/\b(noveno|novena|9no|9na)\b/.test(t) && opcionesPresentadas.length >= 9) return opcionesPresentadas[8];
+  if (/\b(decimo|decima|10mo|10ma)\b/.test(t) && opcionesPresentadas.length >= 10) return opcionesPresentadas[9];
+  if (/\b(ultimo|ultima|el ultimo)\b/.test(t)) return opcionesPresentadas[opcionesPresentadas.length - 1];
+
+  // 3. Coincidencia por marca, personaje o palabra clave ("stitch", "avengers", "mandalorian", "andaluz", "escribe", "norma", "stanford")
+  for (const opc of opcionesPresentadas) {
+    const opcNorm = norm(opc.nombre);
+    const palabrasOpc = opcNorm.split(' ').filter((w) => w.length >= 4 && !['cuaderno', 'universitario', 'hojas', 'cosido', 'espiral', 'cuadros', 'lineas', 'academico', 'lancer'].includes(w));
+    for (const w of palabrasOpc) {
+      if (t.includes(w)) {
+        return opc;
+      }
+    }
+  }
+
+  // 4. Coincidencia por "el más barato" o "económico"
   if (/\b(barato|economico|mas economico|menor precio)\b/.test(t)) {
     return [...opcionesPresentadas].sort((a, b) => a.precio - b.precio)[0];
   }
 
-  // 3. Coincidencia por precio numérico (ej. "el de 3.50", "el de $3.40", "3.80")
-  const matchPrecio = t.match(/(\d+[.,]\d{1,2}|\b\d+\b)/);
+  // 5. Coincidencia por precio numérico EXPLÍCITO (ej. "$3.50", "de 3.50", "de $0.89")
+  const matchPrecio = t.match(/\$\s*(\d+[.,]\d{1,2})|\bde\s+(\d+[.,]\d{1,2})\b/);
   if (matchPrecio) {
-    const precioBuscado = parseFloat(matchPrecio[1].replace(',', '.'));
+    const rawVal = matchPrecio[1] || matchPrecio[2];
+    const precioBuscado = parseFloat(rawVal.replace(',', '.'));
     if (!isNaN(precioBuscado) && precioBuscado > 0) {
-      // Buscar la opción con precio más cercano (tolerancia +/- 0.30)
       let mejorOpcion: CandidatoProducto | null = null;
       let menorDiferencia = 999;
 
       for (const opc of opcionesPresentadas) {
         const diff = Math.abs(opc.precio - precioBuscado);
-        if (diff < menorDiferencia && diff <= 0.35) {
+        if (diff < menorDiferencia && diff <= 0.15) {
           menorDiferencia = diff;
           mejorOpcion = opc;
         }
       }
 
       if (mejorOpcion) return mejorOpcion;
-    }
-  }
-
-  // 4. Coincidencia por marca o palabra clave (ej. "Stanford", "Norma", "Jean Book", "Pelikan")
-  for (const opc of opcionesPresentadas) {
-    const opcNorm = norm(opc.nombre);
-    const palabrasOpc = opcNorm.split(' ').filter((w) => w.length > 3 && !['cuaderno', 'universitario', 'hojas', 'cosido', 'espiral'].includes(w));
-    for (const w of palabrasOpc) {
-      if (t.includes(w)) {
-        return opc;
-      }
     }
   }
 
