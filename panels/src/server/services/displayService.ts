@@ -9,8 +9,12 @@
 /** Códigos y basura de sistemas contables que hay que eliminar del nombre visible */
 const PATRONES_BASURA = [
   /\b\d{4,}\b/g,                    // Códigos numéricos largos (950703, 7036, 1610, etc.)
+  /\b[A-Za-z]{2,}\d{4,}\b/g,        // Códigos tipo Mcd011033, CYX800100
   /\b[A-Z]{2,3}\.\w+\.\d+\b/g,     // Códigos tipo AC.F.169724, BO.PMLA3532
   /\b[A-Z]{2,}\.\w+\b/g,           // Códigos tipo SH.LN.01
+  /\b(pqx\d+|x\d+und|x\d+unid|x\d+unidad|x\d+)\b/gi, // Pqx10, X10und, X5unidad
+  /\b\d+x\d+(\.\d+)?\b/gi,         // Dimensiones tipo 21x29.7
+  /\b\d+cuaderno\b/gi,             // 30cuaderno
   /\*$/,                             // Asteriscos al final
   /\bCYX\w+/gi,                     // Códigos CYX...
   /\b3D-PP\d+/gi,                   // Códigos 3D-PP013

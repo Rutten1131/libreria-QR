@@ -411,29 +411,55 @@ export interface IntencionSemantica {
 
 /**
  * Clasificador Semántico Neuronal para WhatsApp.
- * Interpreta la intención real del usuario independientemente de typos, comas, abreviaturas o modismos ecuatorianos.
+ * Interpreta la intención real del usuario considerando TODO el historial de la conversación.
+ * Es inmune a typos, comas, abreviaturas o modismos ecuatorianos.
  */
 export async function interpretarIntencionSemantica(
   textoCliente: string,
   contextoHistorial?: string,
   opcionesActivas?: Array<{ id: string; nombre: string; precio: number }>
 ): Promise<IntencionSemantica> {
-  const systemPrompt = `Eres el cerebro semántico de LibreríaQR en WhatsApp.
-Tu misión es interpretar mensajes de clientes de papelería en Ecuador sin importar errores ortográficos, abreviaturas, typos ("dicena" = docena = 12, "hijas" = hojas, "tiennes" = tienes), puntuación o modismos.
+  const opcionesTexto = (opcionesActivas || [])
+    .map((o, i) => `  ${i + 1}. ${o.nombre} ($${o.precio.toFixed(2)})`)
+    .join('\n');
 
-IMPORTANTE: "100 hojas" o "12 colores" son atributos del producto (grosor/presentación), NO la cantidad a comprar. La cantidad a comprar es 1 a menos que el cliente diga explícitamente "una docena" (12), "media docena" (6), "2 cuadernos" (2), etc.
+  const systemPrompt = `Eres el cerebro semántico del chatbot de ventas de una librería/papelería en Ecuador vía WhatsApp.
+Tu trabajo es CLASIFICAR la intención del último mensaje del cliente, considerando TODO el historial previo de la conversación.
 
-Debes responder SIEMPRE en formato JSON EXACTO con esta estructura:
+REGLAS CRÍTICAS:
+1. MEMORIA DEL HILO: Si el cliente dice "pero una docena pues", "el que ya te dije", "cambia a 12", o "pero quiero espiral", RECUERDA qué producto estaban discutiendo en mensajes anteriores. Su intención es CORREGIR o ACTUALIZAR el pedido anterior, NO buscar un producto nuevo.
+
+2. CANTIDAD vs ATRIBUTO: "100 hojas" y "12 colores" son ATRIBUTOS del producto (modelo/presentación), NO la cantidad a comprar. La cantidad es 1 a menos que el cliente diga explícitamente: "una docena" (12), "media docena" (6), "2 cuadernos" (2), "quiero 5" (5), etc.
+
+3. CORRECCIÓN DE CANTIDAD: Si el cliente dice "pero una docena pues", "te dije una docena", "ponle 12", es SELECCION_OPCION con cantidad_comprar actualizada. NO es una nueva consulta.
+
+4. REFERENCIA IMPLÍCITA: "El que ya te dije", "ese mismo", "el primero", "el más barato", "el de $3.50" son SELECCION_OPCION con referencia al producto ya discutido.
+
+5. REINICIAR: "reset", "reiniciar", "limpiar", "empezar de nuevo" → REINICIAR.
+
+6. CONFIRMACION: "sí", "confirmo", "dale", "listo", "ok" → CONFIRMACION.
+
+7. SALUDO: Solo si es el primer mensaje o no hay contexto previo: "hola", "buenas" → SALUDO.
+
+RESPONDE SIEMPRE en JSON EXACTO:
 {
   "intencion": "SALUDO" | "CONSULTA_PRODUCTO" | "SELECCION_OPCION" | "LISTA_COMPUESTA" | "CONFIRMACION" | "REINICIAR" | "OTRO",
-  "producto_principal": "cuaderno" | "esfero" | "pintura" | null,
+  "producto_principal": "cuaderno" | null,
   "especificaciones_acumuladas": "cuaderno 100 hojas cuadros espiral" | null,
   "cantidad_comprar": 1,
-  "opcion_elegida_index": 1 | 2 | null,
-  "items_lista": [ { "nombre": "esfero azul", "cantidad": 6 } ]
+  "opcion_elegida_index": 1 | null,
+  "items_lista": [{ "nombre": "esfero azul", "cantidad": 6 }]
 }`;
 
-  const userPrompt = `${systemPrompt}\n\nContexto previo del chat: ${contextoHistorial || 'Ninguno'}\nOpciones mostradas al cliente: ${JSON.stringify(opcionesActivas || [])}\n\nMensaje recibido del cliente: "${textoCliente}"\n\nJSON:`;
+  const userPrompt = `HISTORIAL DE CONVERSACIÓN (más reciente al final):
+${contextoHistorial || '(Sin historial previo — primer mensaje del cliente)'}
+
+OPCIONES ACTUALMENTE PRESENTADAS AL CLIENTE:
+${opcionesTexto || '(Ninguna — no se han mostrado opciones aún)'}
+
+ÚLTIMO MENSAJE DEL CLIENTE: "${textoCliente}"
+
+Clasifica la intención del último mensaje. JSON:`;
 
   const apiKey = getApiKey('gemini');
   const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
@@ -443,7 +469,11 @@ Debes responder SIEMPRE en formato JSON EXACTO con esta estructura:
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        contents: [
+          { role: 'user', parts: [{ text: systemPrompt }] },
+          { role: 'model', parts: [{ text: 'Entendido. Clasificaré la intención del cliente considerando todo el historial del chat y las opciones presentadas. Respondo siempre en JSON.' }] },
+          { role: 'user', parts: [{ text: userPrompt }] },
+        ],
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.05,
@@ -454,7 +484,9 @@ Debes responder SIEMPRE en formato JSON EXACTO con esta estructura:
     const json = await res.json();
     const parsedText = json.candidates?.[0]?.content?.parts?.[0]?.text;
     if (parsedText) {
-      return JSON.parse(parsedText) as IntencionSemantica;
+      const result = JSON.parse(parsedText) as IntencionSemantica;
+      console.log(`[iaAdapter Semántica] Intención: ${result.intencion}, Prod: ${result.producto_principal}, Specs: ${result.especificaciones_acumuladas}, Cant: ${result.cantidad_comprar}, OptIdx: ${result.opcion_elegida_index}`);
+      return result;
     }
   } catch (e: any) {
     console.warn('[iaAdapter] Error en clasificador semantico:', e?.message);

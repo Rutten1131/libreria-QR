@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
-import { procesarListaCliente, procesarTextoConversacional } from '@/server/orchestrate/whatsappOrchestrator';
+import { procesarListaCliente } from '@/server/orchestrate/whatsappOrchestrator';
 import { validarWebhookEvolution, enviarMensaje } from '@/server/adapters/evolutionAdapter';
 import { limpiarNombreERP, generarSugerenciaVentaCruzada } from '@/server/services/displayService';
 import {
@@ -8,6 +8,7 @@ import {
   crearConversacion,
   actualizarConversacion,
 } from '@/server/adapters/conversacionAdapter';
+import { despacharMensajeWhatsApp, RouterContexto } from '@/server/router/botRouter';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     const sb = getSupabase();
 
-    // 1. Buscar tenant asociado a la instancia
+    // ─── PASO 1: BUSCAR TENANT ASOCIADO A LA INSTANCIA ────────────────
     let { data: tw } = await sb
       .from('tenant_whatsapp')
       .select('tenant_id, evolution_instance_id, evolution_instance_name')
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const tenantIdReal = tw.tenant_id;
 
-    // 2. Obtener datos del negocio
+    // ─── PASO 2: OBTENER DATOS DEL NEGOCIO ────────────────────────────
     const { data: tenantObj } = await sb
       .from('tenants')
       .select('id, nombre, telefono')
@@ -109,10 +110,10 @@ export async function POST(req: NextRequest) {
       (num) => numeroLimpio.includes(num) || num.includes(numeroLimpio)
     );
 
-    // 3. Consultar o inicializar estado de la conversación con este cliente
+    // ─── PASO 3: CONSULTAR O INICIALIZAR CONVERSACIÓN ─────────────────
     let conv = await obtenerConversacion(tenantIdReal, datos.numero);
 
-    // 4. Comando de PARAR / SILENCIAR BOT en este chat
+    // ─── PASO 4: COMANDO DE PARAR / SILENCIAR BOT ─────────────────────
     const esComandoPausa = /^(parar|stop|pausa|pausar|silencio|asesor|humano|cancelar|apagar)$/i.test(textoLimpio);
     if (esComandoPausa) {
       if (conv) {
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, tipo: 'bot_pausado_manualmente' });
     }
 
-    // 5. Comando para reactivar bot si estaba pausado
+    // ─── PASO 5: REACTIVAR BOT SI ESTABA PAUSADO ─────────────────────
     const esComandoReactivar = /^(reactivar|activar|iniciar|comenzar|hola|buenas|buenas tardes|buenos dias)$/i.test(textoLimpio);
     if (esComandoReactivar && conv?.requiereHumano && esNumeroPrueba) {
       await actualizarConversacion(conv.id, {
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
       conv.requiereHumano = false;
     }
 
-    // 6. Detectar si el mensaje es el inicio del flujo QR
+    // ─── PASO 6: DETECTAR INICIO DE FLUJO QR ─────────────────────────
     const esMensajeQR = /quiero cotizar mi lista|quiero cotizar/i.test(textoLimpio);
 
     if (esMensajeQR) {
@@ -176,13 +177,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 7. Si la conversación está en HANDOFF humano y no es número de prueba -> SILENCIO TOTAL
+    // ─── PASO 7: HANDOFF HUMANO → SILENCIO TOTAL ─────────────────────
     if (conv?.requiereHumano && !esMensajeQR && !esNumeroPrueba) {
       console.log(`[Webhook WhatsApp] Chat en handoff humano ignorado: ${datos.numero}`);
       return NextResponse.json({ ok: true, ignored: true, reason: 'en_handoff_humano' });
     }
 
-    // 8. Cooldown anti-spam por número
+    // ─── PASO 8: COOLDOWN ANTI-SPAM POR NÚMERO ───────────────────────
     const ultimoProceso = ultimosMensajesPorNumero.get(datos.numero);
     const ahora = Date.now();
     if (ultimoProceso && ahora - ultimoProceso < 6000 && !esMensajeQR && !esNumeroPrueba) {
@@ -191,166 +192,106 @@ export async function POST(req: NextRequest) {
     }
     ultimosMensajesPorNumero.set(datos.numero, ahora);
 
-    // 9. Si el cliente está respondiendo para CONFIRMAR la cotización
-    const esConfirmacionAfirmativa =
-      /^(s[ií]|si confirmo|confirmo|confirmar|de acuerdo|listo|dale|ok|si por favor|si deseo|si quiero|deseo confirmar|por favor|claro)$/i.test(
-        textoLimpio
-      );
-
-    if (conv?.estadoActual === 'CONFIRMANDO_COTIZACION' && esConfirmacionAfirmativa) {
-      const pedidoId = conv.contexto?.pedidoId;
-      const totalNum = conv.contexto?.total || 0;
-      const pedidoNum = pedidoId ? `#${pedidoId.slice(-6)}` : '';
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://libreria-qr-brown.vercel.app';
-      const linkPublico = `${appUrl}/pedir/${tenantIdReal}?pedido=${pedidoId}`;
-
-      // A) Actualizar pedido a estado 'confirmado'
-      if (pedidoId) {
-        await sb
-          .from('pedidos')
-          .update({
-            estado: 'confirmado',
-            cliente_nombre: datos.pushName || 'Cliente WhatsApp',
-            cliente_telefono: datos.numero,
-          })
-          .eq('id', pedidoId);
-      }
-
-      // B) Marcar conversación en HANDOFF humano (o seguir activo si es número de prueba)
-      await actualizarConversacion(conv.id, {
-        estadoActual: esNumeroPrueba ? 'CONFIRMANDO_LISTA' : 'DERIVADO_A_HUMANO',
-        requiereHumano: !esNumeroPrueba,
-        contexto: { ...conv.contexto, confirmado: true },
-      });
-
-      // C) Mensaje de confirmación al cliente con enlace a proforma
-      const msgConfirmacionCliente = `🎉 *¡Pedido Confirmado con Éxito!* 🎉\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n📄 *Ver cotización o descargar proforma en PDF:*\n${linkPublico}\n\n👩‍💼 _Un asesor de nuestra tienda ya fue notificado y se comunicará contigo para coordinar la entrega o retiro. ¡Muchas gracias por tu preferencia!_`;
-
-      await enviarMensaje(datos.instanceName, {
-        numero: datos.numero,
-        texto: msgConfirmacionCliente,
-      });
-
-      // D) Notificar al asesor/dueño
-      if (telefonoAsesor && telefonoAsesor !== datos.numero.replace(/\D/g, '')) {
-        const msgAsesor = `🔔 *¡Nuevo Pedido Confirmado!* 🔔\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n👤 *Cliente:* ${datos.pushName || 'Cliente WhatsApp'} (+${datos.numero})\n💰 *Total Estimado:* $${totalNum.toFixed(2)}\n\n📄 *Ver proforma y pedido:* \n${linkPublico}\n\n👉 _Por favor comunícate con el cliente para coordinar el despacho._`;
-
-        await enviarMensaje(datos.instanceName, {
-          numero: telefonoAsesor,
-          texto: msgAsesor,
-        });
-      }
-
-      return NextResponse.json({ ok: true, tipo: 'pedido_confirmado' });
-    }
-
-    // 10. Si NO es QR, NI imagen/PDF, NI número de prueba autorizado -> IGNORAR
+    // ─── PASO 9: SI NO ES QR NI IMAGEN NI NÚMERO DE PRUEBA → IGNORAR ─
     if (!esMensajeQR && !tieneImagen && !esNumeroPrueba) {
       console.log(`[Webhook WhatsApp] Chat ignorado (no es QR ni lista): "${textoLimpio.substring(0, 40)}"`);
       return NextResponse.json({ ok: true, ignored: true, reason: 'mensaje no escolar' });
     }
 
-    // 10.5. Comando RESET / REINICIAR (Para empezar de cero en pruebas)
-    const esComandoReset = /^(reset|reiniciar|limpiar|borrar|empezar de nuevo|nueva consulta|cancelar)$/i.test(textoLimpio);
-    if (esComandoReset) {
-      if (conv) {
-        await actualizarConversacion(conv.id, {
-          estadoActual: 'INICIAL',
-          requiereHumano: false,
-          contexto: {},
-        });
-      }
-      const resetMsg = `🔄 *Conversación reiniciada desde cero.* 📚\n\n¿En qué te podemos ayudar? Escribe el material que buscas o envíanos tu lista escolar en foto/PDF.`;
-      
-      await enviarMensaje(datos.instanceName, {
-        numero: datos.numero,
-        texto: resetMsg,
-      });
-
-      return NextResponse.json({ ok: true, tipo: 'reset_conversacion' });
-    }
-
-    // 11. Detección de saludos para números de prueba (sin imagen)
-    const esSaludoSimple = /^(hola|buenas|buenos dias|buenas tardes|buenas noches|saludos|que tal|q tal)$/i.test(textoLimpio);
-    if (esSaludoSimple && !tieneImagen && esNumeroPrueba) {
-      const saludoMsg = `¡Hola ${datos.pushName || ''}! 👋 Bienvenido/a a *${nombreLibreria}* 📚✏️\n\n¿En qué te podemos ayudar hoy? Puedes enviarnos la *foto o PDF de tu lista de útiles* 📸📄, o escribirnos directamente los materiales que necesitas para cotizártelos con nuestro inventario en stock.`;
-      
-      await enviarMensaje(datos.instanceName, {
-        numero: datos.numero,
-        texto: saludoMsg,
-      });
-
-      return NextResponse.json({ ok: true, tipo: 'saludo_conversacional_test' });
-    }
-
-    // 12. PROCESAMIENTO INTELIGENTE (Conversacional / Variantes / Lista escolar)
+    // ═══════════════════════════════════════════════════════════════════
+    // ─── PASO 10: PROCESAMIENTO INTELIGENTE ──────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
     try {
-      // Si es solo texto corto de prueba, revisar variantes conversacionales
+
+      // ─── RUTA A: TEXTO CONVERSACIONAL (botRouter con memoria) ──────
       if (!tieneImagen && esNumeroPrueba && textoLimpio.length > 0) {
-        const convRes = await procesarTextoConversacional(
+
+        // Recuperar contexto previo del router desde la conversación en Supabase
+        const contextoPrevio: RouterContexto = (conv?.contexto as RouterContexto) || {};
+
+        // 🧠 DESPACHO AL ROUTER INTELIGENTE (con historial completo del hilo)
+        const resultado = await despacharMensajeWhatsApp(
           tenantIdReal,
           textoLimpio,
           datos.pushName || 'Cliente WhatsApp',
           datos.numero,
-          conv?.contexto
+          contextoPrevio
         );
 
+        console.log(`[BotRouter Result] tipo=${resultado.tipo} pedido=${resultado.pedidoId || 'N/A'} total=${resultado.total || 'N/A'}`);
+
+        // Crear conversación en Supabase si no existe
         if (!conv) {
           conv = await crearConversacion(tenantIdReal, datos.numero);
         }
 
-        if (convRes.tipo === 'pregunta_variante') {
-          await actualizarConversacion(conv.id, {
-            estadoActual: 'RESOLVIENDO_VARIANTES',
-            requiereHumano: false,
-            contexto: { ...(conv?.contexto || {}), ...(convRes.nuevoContexto || {}) },
-          });
-
-          await enviarMensaje(datos.instanceName, {
-            numero: datos.numero,
-            texto: convRes.textoPregunta,
-          });
-
-          return NextResponse.json({ ok: true, tipo: 'pregunta_variante_enviada' });
+        // Mapear el tipo de resultado del router al estado de conversación
+        let nuevoEstado: string;
+        switch (resultado.tipo) {
+          case 'reset':
+            nuevoEstado = 'INICIAL';
+            break;
+          case 'pregunta_variante':
+            nuevoEstado = 'RESOLVIENDO_VARIANTES';
+            break;
+          case 'cotizacion':
+            nuevoEstado = 'CONFIRMANDO_COTIZACION';
+            break;
+          case 'pedido_confirmado':
+            nuevoEstado = esNumeroPrueba ? 'CONFIRMANDO_LISTA' : 'DERIVADO_A_HUMANO';
+            break;
+          default:
+            nuevoEstado = 'CONFIRMANDO_LISTA';
         }
 
-        // Si devolvió cotización directa
-        const cot = convRes.resultado.cotizacion;
-        const ped = convRes.resultado.pedido;
-        const totalFormateado = cot?.total ? `$${cot.total.toFixed(2)}` : '$0.00';
-        const pedidoNum = ped?.id ? `#${ped.id.slice(-6)}` : '';
-
+        // Persistir el nuevo contexto con el historial de mensajes
         await actualizarConversacion(conv.id, {
-          estadoActual: 'CONFIRMANDO_COTIZACION',
+          estadoActual: nuevoEstado as any,
           requiereHumano: false,
-          contexto: {
-            ...(conv?.contexto || {}),
-            ...(convRes.nuevoContexto || {}),
-            pedidoId: ped?.id,
-            total: cot?.total || 0,
-            itemsCount: cot?.items?.length || 0,
-          },
+          contexto: resultado.nuevoContexto as Record<string, any>,
         });
 
-        const itemsTexto = (cot?.items || [])
-          .map((i) => `• [${i.cantidad}x] *${limpiarNombreERP(i.nombre)}* ($${i.precioUnitario.toFixed(2)})`)
-          .join('\n');
+        // Si es confirmación de pedido, manejar la lógica de confirmación completa
+        if (resultado.tipo === 'pedido_confirmado' && resultado.pedidoId) {
+          // Actualizar pedido a estado 'confirmado' en DB
+          await sb
+            .from('pedidos')
+            .update({
+              estado: 'confirmado',
+              cliente_nombre: datos.pushName || 'Cliente WhatsApp',
+              cliente_telefono: datos.numero,
+            })
+            .eq('id', resultado.pedidoId);
 
-        const nombresItems = (cot?.items || []).map((i) => i.nombre);
-        const sugerencia = generarSugerenciaVentaCruzada(nombresItems);
-        const textoSugerencia = sugerencia ? sugerencia.textoSugerencia : '';
+          // Notificar al asesor/dueño
+          if (telefonoAsesor && telefonoAsesor !== datos.numero.replace(/\D/g, '')) {
+            const pedidoNum = `#${resultado.pedidoId.slice(-6)}`;
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://libreria-qr-brown.vercel.app';
+            const linkPublico = `${appUrl}/pedir/${tenantIdReal}?pedido=${resultado.pedidoId}`;
+            const msgAsesor = `🔔 *¡Nuevo Pedido Confirmado!* 🔔\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n👤 *Cliente:* ${datos.pushName || 'Cliente WhatsApp'} (+${datos.numero})\n💰 *Total Estimado:* $${(resultado.total || 0).toFixed(2)}\n\n📄 *Ver proforma y pedido:* \n${linkPublico}\n\n👉 _Por favor comunícate con el cliente para coordinar el despacho._`;
 
-        const resumenTexto = `📋 *Cotización de Útiles* 📋\n🏪 *${nombreLibreria}* — Pedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: ${totalFormateado}*${textoSugerencia}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
+            await enviarMensaje(datos.instanceName, {
+              numero: telefonoAsesor,
+              texto: msgAsesor,
+            });
+          }
+        }
 
+        // Enviar la respuesta del bot al cliente por WhatsApp
         await enviarMensaje(datos.instanceName, {
           numero: datos.numero,
-          texto: resumenTexto,
+          texto: resultado.textoRespuesta,
         });
 
-        return NextResponse.json({ ok: true, tipo: 'cotizacion_texto_enviada' });
+        return NextResponse.json({
+          ok: true,
+          tipo: resultado.tipo,
+          pedido_id: resultado.pedidoId,
+          total: resultado.total,
+        });
       }
 
-      // Si tiene imagen o PDF: aviso de cotización en progreso
+      // ─── RUTA B: IMAGEN O PDF (Lista escolar completa) ─────────────
       await enviarMensaje(datos.instanceName, {
         numero: datos.numero,
         texto: `⏳ *¡Recibimos tu lista escolar!* 📚\n\nPor favor espéranos un momento (~2 minutos), estamos cotizando tus útiles escolares con nuestro inventario en stock...`,
