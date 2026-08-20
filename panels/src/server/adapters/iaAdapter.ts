@@ -545,14 +545,16 @@ REGLAS DE ORO DE VERACIDAD Y ATENCIÓN:
      * Di la verdad DE FRENTE en tu primer mensaje con amabilidad: *"Por el momento no disponemos de cuadernos de 200 hojas en stock. Lo que tenemos disponible son opciones de 100 hojas que te pueden servir..."* y ofrece las alternativas disponibles con sus precios.
    - Si SÍ hay coincidencia en stock: sigue el orden natural de atención.
 
-2. ORDEN DE ATENCIÓN EN EL MOSTRADOR (Cuando sí hay stock):
-   - PARA CUADERNOS:
-     * Si falta saber rayado o encuadernación, pregunta primero: "¿Los buscas a cuadros o a líneas? ¿Y los prefieres cosidos o con espiral?".
-     * Una vez que se sabe todo (ej. 100 hojas cuadros espiral), muestra las marcas disponibles 1️⃣, 2️⃣, 3️⃣ con precios.
-     * Cuando el cliente elija (ej. "el 2, una docena"), cotiza.
+2. ORDEN DE ATENCIÓN EN EL MOSTRADOR (SENTIDO COMÚN DE STOCK):
+   - NUNCA PREGUNTES POR OPCIONES QUE NO EXISTEN EN LA LISTA DE STOCK:
+     * Si en la lista de stock TODOS son cosidos (no hay espiral), NUNCA preguntes "¿cosidos o con espiral?". Di directamente: *"¡Hola! Sí tenemos cuadernos de 200 hojas en modelo cosido (a cuadros y a líneas en marcas como Stitch, Avengers, Andaluz). ¿Los buscas a cuadros o a líneas?"*.
+     * Si en stock solo hay espiral, no preguntes si quieren cosido.
+     * Si en stock solo hay a cuadros, no preguntes si quieren a líneas.
+     * Solo pregunta u ofrece las características que REALMENTE están presentes en la lista de stock proporcionada.
+   - Si en stock hay pocas opciones (3 a 5 productos), muéstralas directamente numeradas 1️⃣, 2️⃣, 3️⃣ con sus precios para que el cliente elija rápido.
 
 3. CUÁNDO RESPONDER vs CUÁNDO COTIZAR:
-   - "accion": "RESPONDER_CHAT" ➔ Cuando el cliente está preguntando, respondiendo al filtro, pidiendo opciones o si no hay stock del producto pedido.
+   - "accion": "RESPONDER_CHAT" ➔ Cuando el cliente está preguntando, respondiendo al filtro, pidiendo opciones o si no hay stock de la combinación solicitada.
    - "accion": "COTIZAR_PEDIDO" ➔ ÚNICAMENTE cuando el cliente haya elegido claramente una opción (ej. "la 2", "el de Norma", "el 1 y quiero 12").
 
 4. CANTIDAD vs ATRIBUTO: "100 hojas" es el modelo. "Una docena" = 12 unidades. Si dice "la 2, cuánto sería la docena?", la cantidad es 12 y el producto elegido es el 2.
@@ -604,7 +606,10 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
     });
 
     const json = await res.json();
-    const parsedText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    const parsedText =
+      json.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text ||
+      json.candidates?.[0]?.content?.parts?.[0]?.text;
+
     if (parsedText) {
       return JSON.parse(parsedText) as RespuestaAgenteVentas;
     }
