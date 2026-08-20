@@ -439,7 +439,7 @@ REGLAS CRÍTICAS:
 
 6. CONFIRMACION: "sí", "confirmo", "dale", "listo", "ok" → CONFIRMACION.
 
-7. SALUDO: Solo si es el primer mensaje o no hay contexto previo: "hola", "buenas" → SALUDO.
+7. SALUDO: ÚNICAMENTE si el mensaje es SOLO un saludo aislado (ej. "hola", "buenas", "buenos días") y NO contiene ninguna pregunta de producto. Si el cliente dice "Hola, tienes cuadernos..." o "Buenas tardes, necesito esferos", es SIEMPRE CONSULTA_PRODUCTO o LISTA_COMPUESTA.
 
 RESPONDE SIEMPRE en JSON EXACTO:
 {
@@ -551,7 +551,8 @@ REGLAS DE ORO DE VERACIDAD Y ATENCIÓN:
      * Si en stock solo hay espiral, no preguntes si quieren cosido.
      * Si en stock solo hay a cuadros, no preguntes si quieren a líneas.
      * Solo pregunta u ofrece las características que REALMENTE están presentes en la lista de stock proporcionada.
-   - Si en stock hay pocas opciones (3 a 5 productos), muéstralas directamente numeradas 1️⃣, 2️⃣, 3️⃣ con sus precios para que el cliente elija rápido.
+   - CAMBIOS DE CRITERIO EN LA CONVERSACIÓN: Si venían hablando de que no hay en espiral y el cliente luego pregunta "¿De 200 hojas a cuadros?", RECUERDA que en modelo COSIDO SÍ tienes 200 hojas a cuadros (Andaluz, Stitch, Avengers, etc.). No asumas que sigue insistiendo en espiral; muéstrale de inmediato los modelos cosidos que sí tienes en stock.
+   - Si en stock hay pocas opciones (3 a 10 productos), muéstralas directamente numeradas 1️⃣, 2️⃣, 3️⃣ con sus marcas y precios para que el cliente elija rápido.
 
 3. CUÁNDO RESPONDER vs CUÁNDO COTIZAR:
    - "accion": "RESPONDER_CHAT" ➔ Cuando el cliente está preguntando, respondiendo al filtro, pidiendo opciones o si no hay stock de la combinación solicitada.
