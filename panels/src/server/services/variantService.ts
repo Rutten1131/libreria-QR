@@ -106,11 +106,11 @@ export function filtrarCandidatosPorCategoria(
       return false;
     }
 
-    const pNombre = norm(p.nombre);
+    const pNombre = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
     const pFam = norm(p.familia || '');
 
     if (categoria) {
-      const matchFamilia = pFam.includes(categoria.familia) || categoria.familia.includes(pFam);
+      const matchFamilia = pFam.includes(categoria.familia) || categoria.familia.includes(pFam) || pNombre.includes(categoria.familia);
       const matchDisparador = disparadores.some((d) => pNombre.includes(d));
       return matchFamilia || matchDisparador;
     }
@@ -120,40 +120,43 @@ export function filtrarCandidatosPorCategoria(
     return tokens.some((t) => pNombre.includes(t));
   });
 
-  // 2. Si el texto tiene atributos específicos (cuadros, lineas, espiral, 100h, etc.), filtrar más fino
-  if (textoNorm.includes('cuadro') || textoNorm.includes('cdrs') || textoNorm.includes('cdros')) {
+  // 2. Si el texto tiene atributos específicos (cuadros, lineas, espiral, cosido, etc.), filtrar más fino
+  if (textoNorm.includes('cuadro') || textoNorm.includes('cdrs') || textoNorm.includes('cdros') || textoNorm.includes('cd ')) {
     const filtrados = candidatos.filter((p) => {
-      const pn = norm(p.nombre);
+      const pn = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
       return pn.includes('cuadro') || pn.includes('cdrs') || pn.includes('cdros') || pn.includes('cd ');
     });
     if (filtrados.length > 0) candidatos = filtrados;
-  } else if (textoNorm.includes('linea') || textoNorm.includes('1l')) {
+  } else if (textoNorm.includes('linea') || textoNorm.includes('1l') || textoNorm.includes('4l')) {
     const filtrados = candidatos.filter((p) => {
-      const pn = norm(p.nombre);
-      return pn.includes('linea') || pn.includes('1l');
+      const pn = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
+      return pn.includes('linea') || pn.includes('1l') || pn.includes('4l');
     });
     if (filtrados.length > 0) candidatos = filtrados;
   }
 
   if (textoNorm.includes('espiral') || textoNorm.includes('anillad') || textoNorm.includes('esp')) {
     const filtrados = candidatos.filter((p) => {
-      const pn = norm(p.nombre);
+      const pn = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
       return pn.includes('espiral') || pn.includes('anillad') || pn.includes('esp');
     });
     if (filtrados.length > 0) candidatos = filtrados;
   } else if (textoNorm.includes('cosido')) {
     const filtrados = candidatos.filter((p) => {
-      const pn = norm(p.nombre);
+      const pn = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
       return pn.includes('cosido') || pn.includes('parvulario');
     });
     if (filtrados.length > 0) candidatos = filtrados;
   }
 
-  if (textoNorm.includes('100') || textoNorm.includes('100h')) {
-    const filtrados = candidatos.filter((p) => norm(p.nombre).includes('100'));
-    if (filtrados.length > 0) candidatos = filtrados;
-  } else if (textoNorm.includes('50') || textoNorm.includes('50h')) {
-    const filtrados = candidatos.filter((p) => norm(p.nombre).includes('50'));
+  // 3. Filtrar por número de hojas dinámico (50, 80, 100, 145, 160, 200, 320, etc.)
+  const matchHojas = textoNorm.match(/\b(50|80|100|145|160|180|192|200|320)\s*(?:h|hojas|pag)?\b/);
+  if (matchHojas) {
+    const numHojas = matchHojas[1];
+    const filtrados = candidatos.filter((p) => {
+      const pn = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
+      return pn.includes(numHojas);
+    });
     if (filtrados.length > 0) candidatos = filtrados;
   }
 

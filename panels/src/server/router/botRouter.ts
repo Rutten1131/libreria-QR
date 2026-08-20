@@ -311,10 +311,23 @@ async function handleConsultaProducto(
 
   const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
   const categoria = buscarCategoriaParaItem(queryBusqueda);
-  const candidatos = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
+  const candidatosExactos = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
+  const hayCoincidenciaExacta = candidatosExactos.length > 0;
+
+  // Si no hay coincidencia exacta de la búsqueda específica (ej. 200 hojas), buscar alternativas de la misma categoría
+  let alternativas: CandidatoProducto[] = [];
+  if (!hayCoincidenciaExacta && categoria) {
+    alternativas = filtrarCandidatosPorCategoria(categoria, categoria.familia, inventario).slice(0, 4);
+  }
 
   // Limpiar nombres de los candidatos para que la IA los vea impecables
-  const candidatosLimpios = (candidatos.length > 0 ? candidatos : inventario.slice(0, 5)).map((c) => ({
+  const candidatosLimpios = candidatosExactos.map((c) => ({
+    id: c.id,
+    nombre: limpiarNombreERP(c.nombre),
+    precio: c.precio,
+  }));
+
+  const alternativasLimpias = alternativas.map((c) => ({
     id: c.id,
     nombre: limpiarNombreERP(c.nombre),
     precio: c.precio,
@@ -322,16 +335,25 @@ async function handleConsultaProducto(
 
   const historial = contextoPrevio?.historialMensajes || [];
 
-  // Llamar al Agente de Ventas con memoria completa y stock real
+  // Llamar al Agente de Ventas con verificación de stock real y alternativas
   const respVentas = await generarRespuestaVentas(
     historial,
     textoCliente,
-    candidatosLimpios
+    candidatosLimpios,
+    alternativasLimpias,
+    hayCoincidenciaExacta
   );
 
+  const listaOpciones = hayCoincidenciaExacta ? candidatosExactos : alternativas;
+  const listaOpcionesLimpias = hayCoincidenciaExacta ? candidatosLimpios : alternativasLimpias;
+
   // Si el agente detecta que el cliente ya eligió una opción clara
-  if (respVentas.accion === 'COTIZAR_PEDIDO' && respVentas.producto_elegido_index && respVentas.producto_elegido_index <= candidatosLimpios.length) {
-    const itemElegido = candidatos[respVentas.producto_elegido_index - 1] || candidatos[0];
+  if (
+    respVentas.accion === 'COTIZAR_PEDIDO' &&
+    respVentas.producto_elegido_index &&
+    respVentas.producto_elegido_index <= listaOpciones.length
+  ) {
+    const itemElegido = listaOpciones[respVentas.producto_elegido_index - 1] || listaOpciones[0];
     const cantFinal = respVentas.cantidad || cantidad;
     const cotizacion = await cotizar(tenantId, [{ cantidad: cantFinal, nombre: itemElegido.nombre }]);
     const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
@@ -367,7 +389,7 @@ async function handleConsultaProducto(
     nuevoContexto: {
       queryAcumulada: queryBusqueda,
       cantidad,
-      opcionesPresentadas: candidatos.slice(0, 4),
+      opcionesPresentadas: listaOpciones.slice(0, 4),
       productoSeleccionado: null,
     },
   };
