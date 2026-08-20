@@ -27,6 +27,13 @@ export interface MensajeHistorial {
   texto: string;
 }
 
+export interface ItemCarrito {
+  productoId: string;
+  nombre: string;
+  precioUnitario: number;
+  cantidad: number;
+}
+
 export interface RouterContexto {
   historialMensajes?: MensajeHistorial[];
   queryAcumulada?: string;
@@ -36,6 +43,7 @@ export interface RouterContexto {
   pedidoId?: string;
   total?: number;
   itemsCount?: number;
+  carrito?: ItemCarrito[];
 }
 
 export interface ResultadoRouter {
@@ -75,6 +83,14 @@ export async function despacharMensajeWhatsApp(
     opcionesActivas
   );
 
+  // Si hay opciones activas en pantalla y el texto coincide directamente con una de ellas (ej. "stitch", "avengers", "el 4"), forzar SELECCION_OPCION
+  if (opcionesActivas.length > 0 && semantica.intencion !== 'REINICIAR' && semantica.intencion !== 'SALUDO') {
+    const matchDirecto = resolverSeleccionOpcion(textoLimpio, opcionesActivas);
+    if (matchDirecto) {
+      semantica.intencion = 'SELECCION_OPCION';
+    }
+  }
+
   console.log(`[BotRouter] Intención: ${semantica.intencion} | Prod: ${semantica.producto_principal} | Cant: ${semantica.cantidad_comprar} | OptIndex: ${semantica.opcion_elegida_index}`);
 
   let resultado: ResultadoRouter;
@@ -94,7 +110,7 @@ export async function despacharMensajeWhatsApp(
       break;
 
     case 'LISTA_COMPUESTA':
-      resultado = await handleListaCompuesta(tenantId, clienteNombre, clienteTelefono, semantica);
+      resultado = await handleListaCompuesta(tenantId, clienteNombre, clienteTelefono, semantica, contextoPrevio);
       break;
 
     case 'SELECCION_OPCION':
@@ -192,16 +208,25 @@ async function handleConfirmacion(
   };
 }
 
-// ─── HANDLER 3: LISTA COMPUESTA (Múltiples útiles) ─────────────────────
-async function handleListaCompuesta(
+// ─── HELPER: GENERAR COTIZACIÓN CON CARRITO PERSISTENTE ────────────────
+async function generarRespuestaCotizacion(
   tenantId: string,
   clienteNombre: string,
   clienteTelefono: string,
-  semantica: IntencionSemantica
+  itemsCarrito: ItemCarrito[],
+  contextoPrevio?: RouterContexto
 ): Promise<ResultadoRouter> {
-  const items = semantica.items_lista || [];
-  const cotizacion = await cotizar(tenantId, items);
+  const cotizacion = await cotizar(
+    tenantId,
+    itemsCarrito.map((i) => ({
+      nombre: i.nombre,
+      cantidad: i.cantidad,
+      productoId: i.productoId,
+    }))
+  );
+
   const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
+  const pedidoNum = `#${pedido.id.slice(-6)}`;
 
   const itemsTexto = cotizacion.items
     .map((i) => `• [${i.cantidad}x] *${limpiarNombreERP(i.nombre)}* ($${i.precioUnitario.toFixed(2)})`)
@@ -209,7 +234,6 @@ async function handleListaCompuesta(
 
   const sugerencia = generarSugerenciaVentaCruzada(cotizacion.items.map((i) => i.nombre));
   const textoSug = sugerencia ? sugerencia.textoSugerencia : '';
-  const pedidoNum = `#${pedido.id.slice(-6)}`;
 
   const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
 
@@ -217,15 +241,63 @@ async function handleListaCompuesta(
     tipo: 'cotizacion',
     textoRespuesta: texto,
     nuevoContexto: {
+      ...contextoPrevio,
       pedidoId: pedido.id,
       total: cotizacion.total,
       itemsCount: cotizacion.items.length,
-      opcionesPresentadas: [],
-      queryAcumulada: undefined,
+      carrito: cotizacion.items.map((i) => ({
+        productoId: i.productoId,
+        nombre: i.nombre,
+        precioUnitario: i.precioUnitario,
+        cantidad: i.cantidad,
+      })),
+      productoSeleccionado:
+        cotizacion.items.length === 1
+          ? {
+              id: cotizacion.items[0].productoId,
+              nombre: cotizacion.items[0].nombre,
+              precio: cotizacion.items[0].precioUnitario,
+            }
+          : null,
+      cantidad: cotizacion.items.length === 1 ? cotizacion.items[0].cantidad : 1,
+      opcionesPresentadas: contextoPrevio?.opcionesPresentadas || [],
+      queryAcumulada: contextoPrevio?.queryAcumulada,
     },
     pedidoId: pedido.id,
     total: cotizacion.total,
   };
+}
+
+// ─── HANDLER 3: LISTA COMPUESTA (Múltiples útiles) ─────────────────────
+async function handleListaCompuesta(
+  tenantId: string,
+  clienteNombre: string,
+  clienteTelefono: string,
+  semantica: IntencionSemantica,
+  contextoPrevio?: RouterContexto
+): Promise<ResultadoRouter> {
+  const items = semantica.items_lista || [];
+  const cotizacion = await cotizar(tenantId, items);
+
+  const itemsNuevos: ItemCarrito[] = cotizacion.items.map((i) => ({
+    productoId: i.productoId,
+    nombre: i.nombre,
+    precioUnitario: i.precioUnitario,
+    cantidad: i.cantidad,
+  }));
+
+  // Si ya había un carrito y los items semánticos eran adicionales, combinarlos
+  let carritoFinal = itemsNuevos;
+  if (contextoPrevio?.carrito && contextoPrevio.carrito.length > 0) {
+    // Si la lista de la IA ya contiene los viejos, usarla; si no, fusionar
+    const idsNuevos = new Set(itemsNuevos.map((i) => i.productoId));
+    const viejosQueNoEstan = contextoPrevio.carrito.filter((v) => !idsNuevos.has(v.productoId));
+    if (viejosQueNoEstan.length > 0 && itemsNuevos.length > 0) {
+      carritoFinal = [...contextoPrevio.carrito, ...itemsNuevos.filter(n => !contextoPrevio.carrito!.some(c => c.productoId === n.productoId))];
+    }
+  }
+
+  return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, carritoFinal, contextoPrevio);
 }
 
 // ─── HANDLER 4: SELECCIÓN O CORRECCIÓN DE OPCIÓN ───────────────────────
@@ -251,40 +323,66 @@ async function handleSeleccionOpcion(
     seleccion = resolverSeleccionOpcion(textoCliente, opciones);
   }
 
-  // 3. Si no hay opción en las previas pero había un producto seleccionado anteriormente y el usuario corrige cantidad
-  if (!seleccion && contextoPrevio?.productoSeleccionado) {
-    seleccion = contextoPrevio.productoSeleccionado;
-  }
+  const cantidad = semantica.cantidad_comprar || 1;
+  const textoMin = textoCliente.toLowerCase().trim();
+  const esAdicion =
+    textoMin.startsWith('y ') ||
+    textoMin.startsWith('también ') ||
+    textoMin.startsWith('tambien ') ||
+    textoMin.startsWith('agrega ') ||
+    textoMin.startsWith('mas ') ||
+    textoMin.includes('y tienes') ||
+    textoMin.includes('y 3') ||
+    textoMin.includes('y 2') ||
+    textoMin.includes('y 1');
 
-  const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
+  let nuevoCarrito: ItemCarrito[] = contextoPrevio?.carrito ? [...contextoPrevio.carrito] : [];
 
   if (seleccion) {
-    const cotizacion = await cotizar(tenantId, [{ nombre: seleccion.nombre, cantidad, productoId: seleccion.id }]);
-    const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
-    const pedidoNum = `#${pedido.id.slice(-6)}`;
-    const nombreLimpio = limpiarNombreERP(seleccion.nombre);
+    if (esAdicion && nuevoCarrito.length > 0) {
+      // Agregar al carrito existente o actualizar si ya está
+      const idxExistente = nuevoCarrito.findIndex((i) => i.productoId === seleccion!.id);
+      if (idxExistente >= 0) {
+        nuevoCarrito[idxExistente].cantidad += cantidad;
+      } else {
+        nuevoCarrito.push({
+          productoId: seleccion.id,
+          nombre: seleccion.nombre,
+          precioUnitario: seleccion.precio,
+          cantidad,
+        });
+      }
+    } else {
+      // Primer ítem o reemplazo directo
+      nuevoCarrito = [
+        {
+          productoId: seleccion.id,
+          nombre: seleccion.nombre,
+          precioUnitario: seleccion.precio,
+          cantidad: semantica.cantidad_comprar || contextoPrevio?.cantidad || 1,
+        },
+      ];
+    }
 
-    const sugerencia = generarSugerenciaVentaCruzada([seleccion.nombre]);
-    const textoSug = sugerencia ? sugerencia.textoSugerencia : '';
+    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio);
+  }
 
-    const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n• [${cantidad}x] *${nombreLimpio}* ($${cotizacion.items[0]?.precioUnitario.toFixed(2) || seleccion.precio.toFixed(2)})\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
-
-    return {
-      tipo: 'cotizacion',
-      textoRespuesta: texto,
-      nuevoContexto: {
-        pedidoId: pedido.id,
-        total: cotizacion.total,
-        itemsCount: 1,
-        productoSeleccionado: seleccion,
-        cantidad,
-        // Mantener las opciones presentadas para que el usuario pueda elegir otra después
-        opcionesPresentadas: opciones,
-        queryAcumulada: contextoPrevio?.queryAcumulada,
+  // 3. Si no hay selección nueva pero el usuario está corrigiendo cantidad (ej. "pero una docena")
+  if (
+    contextoPrevio?.productoSeleccionado &&
+    !esAdicion &&
+    (semantica.cantidad_comprar || textoMin.includes('docena') || textoMin.includes('ciento'))
+  ) {
+    const prod = contextoPrevio.productoSeleccionado;
+    nuevoCarrito = [
+      {
+        productoId: prod.id,
+        nombre: prod.nombre,
+        precioUnitario: prod.precio,
+        cantidad: semantica.cantidad_comprar || cantidad,
       },
-      pedidoId: pedido.id,
-      total: cotizacion.total,
-    };
+    ];
+    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio);
   }
 
   // Si no se encontró la opción, derivar a consulta general
@@ -364,31 +462,17 @@ async function handleConsultaProducto(
   ) {
     const itemElegido = listaOpciones[respVentas.producto_elegido_index - 1] || listaOpciones[0];
     const cantFinal = respVentas.cantidad || cantidad;
-    const cotizacion = await cotizar(tenantId, [{ cantidad: cantFinal, nombre: itemElegido.nombre, productoId: itemElegido.id }]);
-    const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
-    const pedidoNum = `#${pedido.id.slice(-6)}`;
-    const nombreLimpio = limpiarNombreERP(itemElegido.nombre);
-
-    const sugerencia = generarSugerenciaVentaCruzada([itemElegido.nombre]);
-    const textoSug = sugerencia ? sugerencia.textoSugerencia : '';
-
-    const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n• [${cantFinal}x] *${nombreLimpio}* ($${cotizacion.items[0]?.precioUnitario.toFixed(2) || itemElegido.precio.toFixed(2)})\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
-
-    return {
-      tipo: 'cotizacion',
-      textoRespuesta: texto,
-      nuevoContexto: {
-        pedidoId: pedido.id,
-        total: cotizacion.total,
-        itemsCount: 1,
-        productoSeleccionado: itemElegido,
-        cantidad: cantFinal,
-        opcionesPresentadas: [],
-        queryAcumulada: undefined,
-      },
-      pedidoId: pedido.id,
-      total: cotizacion.total,
+    const itemCarrito: ItemCarrito = {
+      productoId: itemElegido.id,
+      nombre: itemElegido.nombre,
+      precioUnitario: itemElegido.precio,
+      cantidad: cantFinal,
     };
+
+    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, [itemCarrito], {
+      ...contextoPrevio,
+      opcionesPresentadas: listaOpciones,
+    });
   }
 
   // Si es conversación, duda o pregunta sobre opciones
@@ -401,6 +485,7 @@ async function handleConsultaProducto(
       cantidad,
       opcionesPresentadas: listaOpciones,
       productoSeleccionado: null,
+      carrito: contextoPrevio?.carrito,
     },
   };
 }
