@@ -311,14 +311,19 @@ async function handleConsultaProducto(
 
   const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
   const categoria = buscarCategoriaParaItem(queryBusqueda);
-  const candidatosExactos = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
-  const hayCoincidenciaExacta = candidatosExactos.length > 0;
+  const candidatosExactosRaw = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
+  const hayCoincidenciaExacta = candidatosExactosRaw.length > 0;
 
   // Si no hay coincidencia exacta de la búsqueda específica (ej. 200 hojas), buscar alternativas de la misma categoría
-  let alternativas: CandidatoProducto[] = [];
+  let alternativasRaw: CandidatoProducto[] = [];
   if (!hayCoincidenciaExacta && categoria) {
-    alternativas = filtrarCandidatosPorCategoria(categoria, categoria.familia, inventario).slice(0, 4);
+    alternativasRaw = filtrarCandidatosPorCategoria(categoria, categoria.familia, inventario).slice(0, 10);
   }
+
+  // IMPORTANTE: Ordenar por precio ANTES de pasarlos a la IA para que el índice
+  // que la IA muestra (1️⃣, 2️⃣, 3️⃣) coincida EXACTAMENTE con el orden guardado en opcionesPresentadas.
+  const candidatosExactos = [...candidatosExactosRaw].sort((a, b) => a.precio - b.precio);
+  const alternativas = [...alternativasRaw].sort((a, b) => a.precio - b.precio);
 
   // Limpiar nombres de los candidatos para que la IA los vea impecables
   const candidatosLimpios = candidatosExactos.map((c) => ({
@@ -345,7 +350,6 @@ async function handleConsultaProducto(
   );
 
   const listaOpciones = hayCoincidenciaExacta ? candidatosExactos : alternativas;
-  const listaOpcionesLimpias = hayCoincidenciaExacta ? candidatosLimpios : alternativasLimpias;
 
   // Si el agente detecta que el cliente ya eligió una opción clara
   if (
@@ -383,14 +387,16 @@ async function handleConsultaProducto(
   }
 
   // Si es conversación, duda o pregunta sobre opciones
+  // Guardar TODAS las opciones para que el índice del usuario coincida con el orden de la IA
   return {
     tipo: 'pregunta_variante',
     textoRespuesta: respVentas.mensaje_whatsapp,
     nuevoContexto: {
       queryAcumulada: queryBusqueda,
       cantidad,
-      opcionesPresentadas: listaOpciones.slice(0, 4),
+      opcionesPresentadas: listaOpciones.slice(0, 10),
       productoSeleccionado: null,
     },
   };
 }
+
