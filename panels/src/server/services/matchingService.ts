@@ -5,6 +5,7 @@ import { getInventarioAsync } from '../adapters/inventarioAdapter';
 export interface ItemEntrada {
   nombre: string;
   cantidad: number;
+  productoId?: string;
 }
 
 type EntradaCotizar = string | ItemEntrada;
@@ -24,10 +25,9 @@ function extraerCantidadDeTexto(texto: string): number {
 
 function desabreviar(palabra: string): string {
   // Abreviaturas reales de inventario de papelería
-  if (palabra === 'cdrs' || palabra === 'cdros' || palabra === 'cuadro' || palabra === 'cuadros') return 'cuadros';
-  if (palabra === '1l' || palabra === '1linea' || palabra === 'linea' || palabra === 'lineas') return 'lineas';
-  if (palabra === '4l' || palabra === '4lineas') return '4lineas';
-  if (palabra === 'anillada' || palabra === 'anillado' || palabra === 'esp' || palabra === 'espiral') return 'espiral';
+  if (palabra === 'cdrs' || palabra === 'cdros' || palabra === 'cuadro' || palabra === 'cuadros' || palabra === 'cd') return 'cuadros';
+  if (palabra === '1l' || palabra === '1linea' || palabra === 'linea' || palabra === 'lineas' || palabra === '4l') return 'lineas';
+  if (palabra === 'anillada' || palabra === 'anillado' || palabra === 'esp' || palabra === 'espiral' || palabra === 'cm') return 'espiral';
   if (palabra === '100h' || palabra === '100hojas') return '100 hojas';
   if (palabra === '50h' || palabra === '50hojas') return '50 hojas';
   if (palabra === '200h' || palabra === '200hojas') return '200 hojas';
@@ -35,6 +35,10 @@ function desabreviar(palabra: string): string {
   if (palabra === 'p/pincho' || palabra === 'pincho' || palabra === 'pinchos') return 'pincho';
   if (palabra === 'p/balsa' || palabra === 'balsa') return 'balsa';
   if (palabra === 'plast' || palabra === 'plastico' || palabra === 'plastica') return 'plastico';
+  if (palabra === 'bolig' || palabra === 'boligrafo' || palabra === 'boligrafos' || palabra === 'esfero' || palabra === 'esferos' || palabra === 'pluma' || palabra === 'plumas') return 'esfero';
+  if (palabra === 'marc' || palabra === 'marcador' || palabra === 'marcadores') return 'marcador';
+  if (palabra === 'pint' || palabra === 'pintura' || palabra === 'pinturas' || palabra === 'colores') return 'pintura';
+  if (palabra === 'temp' || palabra === 'tempera' || palabra === 'temperas') return 'tempera';
   return palabra;
 }
 
@@ -47,13 +51,14 @@ function lematizar(palabra: string): string {
   if (palabra.endsWith('s') && palabra.length > 3 && !palabra.endsWith('as') && !palabra.endsWith('is')) return palabra.slice(0, -1);
   if (palabra === 'plastico' || palabra === 'plastica' || palabra === 'plasticas') return 'plastico';
   if (palabra === 'lapices' || palabra === 'lapiz') return 'lapiz';
-  if (palabra === 'pinturas' || palabra === 'colores') return 'pintura';
-  if (palabra === 'cuadernos') return 'cuaderno';
-  if (palabra === 'borradores') return 'borrador';
-  if (palabra === 'tijeras') return 'tijera';
-  if (palabra === 'gomas' || palabra === 'pega') return 'goma';
-  if (palabra === 'palillos' || palabra === 'palitos') return 'palillo';
-  if (palabra === 'agendas') return 'agenda';
+  if (palabra === 'pinturas' || palabra === 'colores' || palabra === 'pintura') return 'pintura';
+  if (palabra === 'cuadernos' || palabra === 'cuaderno') return 'cuaderno';
+  if (palabra === 'borradores' || palabra === 'borrador') return 'borrador';
+  if (palabra === 'tijeras' || palabra === 'tijera') return 'tijera';
+  if (palabra === 'gomas' || palabra === 'pega' || palabra === 'goma') return 'goma';
+  if (palabra === 'palillos' || palabra === 'palitos' || palabra === 'palillo') return 'palillo';
+  if (palabra === 'agendas' || palabra === 'agenda') return 'agenda';
+  if (palabra === 'esferos' || palabra === 'esfero' || palabra === 'boligrafo' || palabra === 'boligrafos') return 'esfero';
   return palabra;
 }
 
@@ -76,13 +81,14 @@ const STOPWORDS = new Set([
   'de', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
   'para', 'con', 'sin', 'por', 'en', 'del', 'al', 'y', 'o',
   'tipo', 'tamano', 'grande', 'pequeno', 'cosido', 'parvulario',
-  'forrado', 'hoja', 'delgado', 'servicio', 'sobre', 'broche'
+  'forrado', 'hoja', 'delgado', 'servicio', 'sobre', 'broche', 'caja'
 ]);
 
 const NOUNS = [
   'cuaderno', 'lapiz', 'borrador', 'tijera', 'sacapuntas',
   'goma', 'resma', 'pintura', 'carpeta', 'regla', 'compas',
-  'corrector', 'juego', 'marcador', 'palillo', 'agenda', 'fomix', 'plastilina'
+  'corrector', 'juego', 'marcador', 'palillo', 'agenda', 'fomix', 'plastilina',
+  'esfero', 'boligrafo', 'tempera', 'pincel', 'cartulina', 'papel', 'silicona'
 ];
 
 /**
@@ -174,6 +180,7 @@ function normalizarEntrada(lista: EntradaCotizar[]): ItemEntrada[] {
         return {
           nombre: e.nombre,
           cantidad: Number.isFinite(e.cantidad) && e.cantidad > 0 ? Math.floor(e.cantidad) : extraerCantidadDeTexto(e.nombre),
+          productoId: e.productoId,
         };
       }
       return {
@@ -197,11 +204,29 @@ export async function cotizar(tenantId: string, lista: EntradaCotizar[]): Promis
     let mejorMatch: Producto | null = null;
     let mejorSimilitud = 0;
 
-    for (const producto of inventario) {
-      const sim = calcularSimilitudInteligente(item.nombre, producto.nombre);
-      if (sim > mejorSimilitud) {
-        mejorSimilitud = sim;
-        mejorMatch = producto;
+    // 1. Coincidencia directa por ID de producto (máxima fidelidad cuando ya fue seleccionado)
+    if (item.productoId) {
+      mejorMatch = inventario.find((p) => p.id === item.productoId) || null;
+      if (mejorMatch) mejorSimilitud = 1.0;
+    }
+
+    // 2. Coincidencia exacta por nombre de catálogo
+    if (!mejorMatch) {
+      const exacto = inventario.find((p) => p.nombre.toLowerCase().trim() === item.nombre.toLowerCase().trim());
+      if (exacto) {
+        mejorMatch = exacto;
+        mejorSimilitud = 1.0;
+      }
+    }
+
+    // 3. Matching semántico inteligente
+    if (!mejorMatch) {
+      for (const producto of inventario) {
+        const sim = calcularSimilitudInteligente(item.nombre, producto.nombre);
+        if (sim > mejorSimilitud) {
+          mejorSimilitud = sim;
+          mejorMatch = producto;
+        }
       }
     }
 

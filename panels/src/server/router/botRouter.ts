@@ -255,7 +255,7 @@ async function handleSeleccionOpcion(
   const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
 
   if (seleccion) {
-    const cotizacion = await cotizar(tenantId, [{ nombre: seleccion.nombre, cantidad }]);
+    const cotizacion = await cotizar(tenantId, [{ nombre: seleccion.nombre, cantidad, productoId: seleccion.id }]);
     const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
     const pedidoNum = `#${pedido.id.slice(-6)}`;
     const nombreLimpio = limpiarNombreERP(seleccion.nombre);
@@ -359,7 +359,7 @@ async function handleConsultaProducto(
   ) {
     const itemElegido = listaOpciones[respVentas.producto_elegido_index - 1] || listaOpciones[0];
     const cantFinal = respVentas.cantidad || cantidad;
-    const cotizacion = await cotizar(tenantId, [{ cantidad: cantFinal, nombre: itemElegido.nombre }]);
+    const cotizacion = await cotizar(tenantId, [{ cantidad: cantFinal, nombre: itemElegido.nombre, productoId: itemElegido.id }]);
     const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
     const pedidoNum = `#${pedido.id.slice(-6)}`;
     const nombreLimpio = limpiarNombreERP(itemElegido.nombre);
