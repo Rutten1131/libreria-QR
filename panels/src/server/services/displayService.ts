@@ -184,6 +184,9 @@ function cantidadAPalabra(cantidad: number): string {
 
 const TYPOS_COMUNES: Record<string, string> = {
   // Errores de teclado muy comunes en español
+  'dicena': 'docena',
+  'dosena': 'docena',
+  'dosenas': 'docenas',
   'hijas': 'hojas',
   'ojas': 'hojas',
   'hjas': 'hojas',
@@ -211,6 +214,7 @@ const TYPOS_COMUNES: Record<string, string> = {
   'carpets': 'carpetas',
   'pintras': 'pinturas',
   'pintruas': 'pinturas',
+  'pintura': 'pinturas',
   'resma': 'resma',
   'fomis': 'fomix',
   'fomix': 'fomix',
@@ -235,6 +239,21 @@ const TYPOS_COMUNES: Record<string, string> = {
   'temepra': 'témpera',
   'acuarla': 'acuarela',
 };
+
+/**
+ * Limpia frases conversacionales introductorias ("tienes", "quiero", "necesito")
+ * para que el título de la pregunta no se vea redundante.
+ * Ej: "Tienes cuadernos de 100 hijas" -> "Cuadernos de 100 hojas"
+ */
+export function limpiarFraseConsulta(texto: string): string {
+  let t = corregirTypos(texto || '');
+  t = t.replace(/\b(tienes|tiene|hay|habra|vendes|vende|quiero|necesito|busco|quisiera|favor|por favor|cuanto sale|cuanto cuesta|precio|me das|dame)\b/gi, '');
+  t = t.replace(/\s+/g, ' ').trim();
+  if (t.length > 0) {
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return texto;
+}
 
 /**
  * Corrige typos frecuentes en el texto del cliente.

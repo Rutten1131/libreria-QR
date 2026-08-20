@@ -250,6 +250,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true, reason: 'mensaje no escolar' });
     }
 
+    // 10.5. Comando RESET / REINICIAR (Para empezar de cero en pruebas)
+    const esComandoReset = /^(reset|reiniciar|limpiar|borrar|empezar de nuevo|nueva consulta|cancelar)$/i.test(textoLimpio);
+    if (esComandoReset) {
+      if (conv) {
+        await actualizarConversacion(conv.id, {
+          estadoActual: 'INICIAL',
+          requiereHumano: false,
+          contexto: {},
+        });
+      }
+      const resetMsg = `🔄 *Conversación reiniciada desde cero.* 📚\n\n¿En qué te podemos ayudar? Escribe el material que buscas o envíanos tu lista escolar en foto/PDF.`;
+      
+      await enviarMensaje(datos.instanceName, {
+        numero: datos.numero,
+        texto: resetMsg,
+      });
+
+      return NextResponse.json({ ok: true, tipo: 'reset_conversacion' });
+    }
+
     // 11. Detección de saludos para números de prueba (sin imagen)
     const esSaludoSimple = /^(hola|buenas|buenos dias|buenas tardes|buenas noches|saludos|que tal|q tal)$/i.test(textoLimpio);
     if (esSaludoSimple && !tieneImagen && esNumeroPrueba) {

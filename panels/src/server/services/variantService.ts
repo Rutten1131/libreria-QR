@@ -1,5 +1,5 @@
 import { buscarCategoriaParaItem, CategoriaConocimiento } from '../knowledge/index';
-import { corregirTypos, formatearOpcionesNumeradas, limpiarNombreERP } from './displayService';
+import { corregirTypos, formatearOpcionesNumeradas, limpiarNombreERP, limpiarFraseConsulta } from './displayService';
 
 export interface CandidatoProducto {
   id: string;
@@ -34,36 +34,55 @@ export function norm(texto: string): string {
 /**
  * Extrae cantidades expresadas en lenguaje natural ecuatoriano/cotidiano
  * ej: "una docena" -> 12, "media docena" -> 6, "un par" -> 2, "3 cuadernos" -> 3
+ * IMPORTANTE: No confunde atributos del producto (como "100 hojas", "12 colores", "90 gr") con cantidades a comprar.
  */
 export function extraerCantidadNatural(texto: string): number | null {
   const t = norm(texto);
 
+  // 1. Detección de lotes explícitos primero
   if (t.includes('media docena') || t.includes('1/2 docena')) return 6;
-  if (t.includes('una docena') || t.includes('1 docena') || t.includes('la docena') || t.includes('docena')) return 12;
+  if (t.includes('una docena') || t.includes('1 docena') || t.includes('la docena') || t.includes('docena') || t.includes('dicena')) return 12;
   if (t.includes('dos docenas') || t.includes('2 docenas')) return 24;
   if (t.includes('tres docenas') || t.includes('3 docenas')) return 36;
-  if (t.includes('un par') || t.includes('par de')) return 2;
+  if (t.includes('un par') || t.includes('par de') || t.includes('pares')) return 2;
   if (t.includes('un ciento') || t.includes('ciento')) return 100;
   if (t.includes('medio ciento')) return 50;
 
-  // Buscar dígitos explícitos (ej. "3 cuadernos", "10 unidades", "12")
-  const match = t.match(/\b(\d+)\b/);
-  if (match) {
-    const num = parseInt(match[1], 10);
-    // Ignorar si parece año o número de modelo gigante (>1000)
-    if (num > 0 && num <= 500) return num;
+  // 2. Limpiar especificaciones técnicas del producto para no confundir atributos con cantidad
+  // ej: "100 hojas", "100h", "12 colores", "24col", "90 gr", "50h"
+  const textoSinAtributos = t
+    .replace(/\b\d+\s*(hojas|h|pag|paginas|colores|col|gr|grs|gramos|cm|mm|oz|ml|piezas|pz|unidades\s*por\s*caja)\b/gi, ' ')
+    .replace(/\b(100h|50h|200h|160h|80h|145h|12col|16col|24col|36col|6col|90gr|75gr)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 3. Buscar cantidad explícita asociada a intención de compra
+  // ej: "quiero 3", "deme 2", "2 cuadernos", "5 unidades", "comprar 4"
+  const matchIntencion = textoSinAtributos.match(
+    /\b(?:quiero|necesito|deme|dame|venda|mandame|traeme|pedir|cotizar|comprar|son)?\s*(\d+)\s*(?:cuadernos?|lapices?|esferos?|boligrafos?|gomas?|borradores?|carpetas?|cajas?|unidades?|unid|uds)?\b/
+  );
+  if (matchIntencion && matchIntencion[1]) {
+    const num = parseInt(matchIntencion[1], 10);
+    if (num > 0 && num <= 200) return num;
   }
 
-  // Palabras numerales simples
-  if (/\b(un|uno|una)\b/.test(t)) return 1;
-  if (/\b(dos)\b/.test(t)) return 2;
-  if (/\b(tres)\b/.test(t)) return 3;
-  if (/\b(cuatro)\b/.test(t)) return 4;
-  if (/\b(cinco)\b/.test(t)) return 5;
-  if (/\b(seis)\b/.test(t)) return 6;
-  if (/\b(diez)\b/.test(t)) return 10;
-  if (/\b(doce)\b/.test(t)) return 12;
-  if (/\b(veinte)\b/.test(t)) return 20;
+  // 4. Buscar si empieza con un número directo o contiene número suelto residual
+  const matchResidual = textoSinAtributos.match(/\b(\d+)\b/);
+  if (matchResidual) {
+    const num = parseInt(matchResidual[1], 10);
+    // Solo si es una cantidad razonable para compras al por menor (< 100)
+    if (num > 0 && num <= 50) return num;
+  }
+
+  // 5. Palabras numerales simples al inicio o tras palabras de compra
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(un|uno|una)\s+(?:cuaderno|lapiz|esfero|goma|borrador|carpeta|caja|unidad)\b/.test(textoSinAtributos)) return 1;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(dos)\b/.test(textoSinAtributos)) return 2;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(tres)\b/.test(textoSinAtributos)) return 3;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(cuatro)\b/.test(textoSinAtributos)) return 4;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(cinco)\b/.test(textoSinAtributos)) return 5;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(seis)\b/.test(textoSinAtributos)) return 6;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(diez)\b/.test(textoSinAtributos)) return 10;
+  if (/\b(?:quiero|necesito|deme|dame|comprar)?\s*(doce)\b/.test(textoSinAtributos)) return 12;
 
   return null;
 }
@@ -266,8 +285,9 @@ export function detectarAmbiguedad(
   // Filtrar y tomar máximo 4 opciones más representativas
   const opcionesTop = opcionesParaMostrar.slice(0, 4);
   const opcionesTexto = formatearOpcionesNumeradas(opcionesTop, cantidad);
+  const nombreLimpioPregunta = limpiarFraseConsulta(itemTexto);
 
-  let pregunta = `Para *${itemTexto}*, tenemos estas opciones en stock:\n\n${opcionesTexto}`;
+  let pregunta = `Para *${nombreLimpioPregunta}*, tenemos estas opciones en stock:\n\n${opcionesTexto}`;
 
   if (categoria) {
     const dimensionNoResuelta = categoria.dimensiones.find((dim) => {
@@ -276,7 +296,7 @@ export function detectarAmbiguedad(
     });
 
     if (dimensionNoResuelta?.pregunta) {
-      pregunta = `Para *${itemTexto}*, ${dimensionNoResuelta.pregunta}\n\n${opcionesTexto}`;
+      pregunta = `Para *${nombreLimpioPregunta}*, ${dimensionNoResuelta.pregunta}\n\n${opcionesTexto}`;
     } else if (categoria.preguntaGenerica) {
       pregunta = `${categoria.preguntaGenerica}\n\n${opcionesTexto}`;
     }

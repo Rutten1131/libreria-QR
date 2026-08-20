@@ -228,6 +228,35 @@ export async function procesarTextoConversacional(
   const inventario = await getInventarioAsync(tenantId);
   const textoLimpio = textoCliente.trim();
 
+  // 0. Detectar si es una lista compuesta con múltiples útiles escolares
+  // (ej. "media docena de esferos, 2 cuadernos... y una goma")
+  const tieneComas = textoLimpio.includes(',');
+  const tieneSaltos = textoLimpio.includes('\n');
+  const tieneConectoresLista = /\b(y|ademas|tambien)\s+(un|una|dos|tres|\d+)\b/i.test(textoLimpio);
+  const esListaCompuesta = tieneComas || tieneSaltos || (textoLimpio.split(' ').length > 6 && tieneConectoresLista);
+
+  if (esListaCompuesta) {
+    const resultado = await procesarListaCliente({
+      tenantId,
+      clienteNombre,
+      clienteTelefono,
+      textoOriginal: textoLimpio,
+    });
+
+    return {
+      tipo: 'cotizacion',
+      resultado,
+      nuevoContexto: {
+        pedidoId: resultado.pedido?.id,
+        total: resultado.cotizacion?.total || 0,
+        itemsCount: resultado.cotizacion?.items?.length || 0,
+        // Limpiar consultas anteriores para no arrastrar contexto viejo
+        queryAcumulada: undefined,
+        opcionesPresentadas: [],
+      },
+    };
+  }
+
   // 1. Verificar si el usuario está respondiendo a opciones presentadas anteriormente
   const opcionesPrevias: CandidatoProducto[] = contextoPrevio?.opcionesPresentadas || [];
   const cantidadPrevia = contextoPrevio?.cantidad || 1;
@@ -238,7 +267,7 @@ export async function procesarTextoConversacional(
     const seleccion = resolverSeleccionOpcion(textoLimpio, opcionesPrevias);
 
     if (seleccion) {
-      // El cliente seleccionó una opción concreta (ej. "el de 3.50", "el primero", "Stanford")
+      // El cliente seleccionó una opción concreta (ej. "el de 3.50", "el primero", "1", "Stanford")
       const cotizacion = await cotizar(tenantId, [
         { nombre: seleccion.nombre, cantidad: cantidadFinal },
       ]);
@@ -263,17 +292,25 @@ export async function procesarTextoConversacional(
           itemsCount: cotizacion.items.length,
           productoConfirmado: seleccion.nombre,
           cantidad: cantidadFinal,
+          // Limpiar opciones previas una vez seleccionada
+          queryAcumulada: undefined,
+          opcionesPresentadas: [],
         },
       };
     }
   }
 
-  // 2. Si hay una consulta previa y el cliente está agregando especificaciones (ej. "a cuadros", "espiral", "docena")
-  const queryBase = contextoPrevio?.queryAcumulada
+  // 2. Detectar si el cliente cambió de producto/categoría (ej. antes cuadernos, ahora pinturas)
+  const catActual = buscarCategoriaParaItem(textoLimpio);
+  const catPrevia = contextoPrevio?.categoriaFamilia;
+  const esCambioDeCategoria = Boolean(catActual && catPrevia && catActual.familia !== catPrevia);
+
+  // Si cambió de categoría, empezar con query limpia; si no, acumular especificaciones (ej. "a cuadros", "espiral")
+  const queryBase = (contextoPrevio?.queryAcumulada && !esCambioDeCategoria)
     ? `${contextoPrevio.queryAcumulada} ${textoLimpio}`
     : textoLimpio;
 
-  const categoria = buscarCategoriaParaItem(queryBase);
+  const categoria = catActual || buscarCategoriaParaItem(queryBase);
 
   // Filtrar candidatos estrictamente de la categoría y atributos mencionados
   const candidatos = filtrarCandidatosPorCategoria(categoria, queryBase, inventario);
@@ -287,16 +324,17 @@ export async function procesarTextoConversacional(
       textoPregunta: `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o si deseas agregar algún otro útil escolar._`,
       nuevoContexto: {
         queryAcumulada: queryBase,
+        categoriaFamilia: categoria?.familia,
         cantidad: cantidadFinal,
         opcionesPresentadas: resAmb.opcionesDisponibles,
       },
     };
   }
 
-  // Si ya no hay ambigüedad o hay una opción clara, cotizar la lista/producto
+  // Si ya no hay ambigüedad o hay una opción clara, cotizar el producto
   let itemsParaCotizar: Array<{ cantidad: number; nombre: string }> = [];
 
-  if (candidatos.length === 1 || (candidatos.length > 1 && !resAmb.esAmbiguo)) {
+  if (candidatos.length >= 1) {
     itemsParaCotizar = [{ cantidad: cantidadFinal, nombre: candidatos[0].nombre }];
   } else {
     // Parser Groq estándar para listas compuestas
@@ -339,7 +377,9 @@ export async function procesarTextoConversacional(
       pedidoId: pedido.id,
       total: cotizacion.total,
       itemsCount: cotizacion.items.length,
-      queryAcumulada: queryBase,
+      // Limpiar query acumulada al cerrar la cotización
+      queryAcumulada: undefined,
+      opcionesPresentadas: [],
       cantidad: cantidadFinal,
     },
   };
