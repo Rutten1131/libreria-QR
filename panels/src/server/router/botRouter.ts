@@ -310,8 +310,8 @@ async function handleConsultaProducto(
   const candidatos = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
   const resAmb = detectarAmbiguedad(queryBusqueda, candidatos, cantidad);
 
-  // Si hay ambigüedad o múltiples opciones, presentar las opciones claras con sus precios
-  if (resAmb.esAmbiguo && resAmb.opcionesDisponibles.length > 1) {
+  // Si hay múltiples opciones, presentar las opciones claras con sus precios
+  if (resAmb.opcionesDisponibles.length > 1) {
     const texto = `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o el número de opción para armarte el pedido._`;
 
     return {
@@ -326,31 +326,22 @@ async function handleConsultaProducto(
     };
   }
 
-  // Si hay exactamente 1 producto claro
-  const itemElegido = candidatos.length > 0 ? candidatos[0] : { id: 'custom', nombre: queryBusqueda, precio: 1.0 };
-  const cotizacion = await cotizar(tenantId, [{ cantidad, nombre: itemElegido.nombre }]);
-  const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
-  const pedidoNum = `#${pedido.id.slice(-6)}`;
+  // Si hay 1 sola opción disponible
+  const itemElegido = resAmb.opcionesDisponibles.length === 1 ? resAmb.opcionesDisponibles[0] : (candidatos.length > 0 ? candidatos[0] : { id: 'custom', nombre: queryBusqueda, precio: 1.0 });
   const nombreLimpio = limpiarNombreERP(itemElegido.nombre);
+  const totalLote = itemElegido.precio * cantidad;
+  const textoLote = cantidad > 1 ? `\n➔ Las ${cantidad} unidades te salen en *$${totalLote.toFixed(2)}*` : '';
 
-  const sugerencia = generarSugerenciaVentaCruzada([itemElegido.nombre]);
-  const textoSug = sugerencia ? sugerencia.textoSugerencia : '';
-
-  const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n• [${cantidad}x] *${nombreLimpio}* ($${cotizacion.items[0]?.precioUnitario.toFixed(2) || itemElegido.precio.toFixed(2)})\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
+  const texto = `¡Con gusto! 📚✏️\n\nTenemos disponible:\n• *${nombreLimpio}* ($${itemElegido.precio.toFixed(2)} c/u)${textoLote}\n\n👉 *¿Deseas que te lo agregue a la cotización o prefieres buscar otra marca/modelo?*`;
 
   return {
-    tipo: 'cotizacion',
+    tipo: 'pregunta_variante',
     textoRespuesta: texto,
     nuevoContexto: {
-      pedidoId: pedido.id,
-      total: cotizacion.total,
-      itemsCount: 1,
-      productoSeleccionado: itemElegido,
+      queryAcumulada: queryBusqueda,
       cantidad,
-      opcionesPresentadas: [],
-      queryAcumulada: undefined,
+      opcionesPresentadas: [itemElegido],
+      productoSeleccionado: itemElegido,
     },
-    pedidoId: pedido.id,
-    total: cotizacion.total,
   };
 }

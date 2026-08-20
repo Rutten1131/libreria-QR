@@ -234,27 +234,14 @@ export function resolverSeleccionOpcion(
 /**
  * Determina si el texto del cliente ya contiene todas las especificaciones necesarias
  */
-function esDetalleCompleto(itemTexto: string, cat: CategoriaConocimiento): boolean {
-  const textoNorm = norm(itemTexto);
+function esDetalleCompleto(texto: string, cat: CategoriaConocimiento): boolean {
+  const textoNorm = norm(texto);
 
-  if (cat.familia === 'cuaderno') {
-    const tieneRayado = ['cuadro', 'linea', 'dibujo', 'blanco', 'cdrs', 'cdros', '1l', '4l'].some((r) => textoNorm.includes(r));
-    const tieneTipo = ['cosido', 'espiral', 'grapado', 'parvulario', 'anillad', 'esp'].some((t) => textoNorm.includes(t));
-    return tieneRayado && tieneTipo;
-  }
+  // Marcas conocidas que indican elección específica de marca
+  const tieneMarca = ['norma', 'stanford', 'jean book', 'scribe', 'andino', 'andaluz', 'pelikan', 'faber', 'artesco', 'bic', 'merletto', 'monami'].some((m) => textoNorm.includes(m));
+  if (tieneMarca) return true;
 
-  if (cat.familia === 'pinturas') {
-    return ['12', '24', '36', '6'].some((num) => textoNorm.includes(num));
-  }
-
-  if (cat.familia === 'goma') {
-    return ['liquida', 'barra', 'silicona'].some((t) => textoNorm.includes(t));
-  }
-
-  if (cat.familia === 'fomix') {
-    return ['llano', 'liso', 'escarchado', 'glitter'].some((t) => textoNorm.includes(t));
-  }
-
+  // Si no especificó marca, siempre permitimos ver las opciones si hay más de 1
   return false;
 }
 
