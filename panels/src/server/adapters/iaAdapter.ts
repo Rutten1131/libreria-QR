@@ -399,3 +399,74 @@ Ejemplo de salida:
   const msg = ultimoError instanceof Error ? ultimoError.message : String(ultimoError);
   throw new Error(`Todos los modelos de texto fallaron. Ultimo: ${msg.slice(0, 200)}`);
 }
+
+export interface IntencionSemantica {
+  intencion: 'SALUDO' | 'CONSULTA_PRODUCTO' | 'SELECCION_OPCION' | 'LISTA_COMPUESTA' | 'CONFIRMACION' | 'REINICIAR' | 'OTRO';
+  producto_principal?: string | null;
+  especificaciones_acumuladas?: string | null;
+  cantidad_comprar: number;
+  opcion_elegida_index?: number | null;
+  items_lista?: Array<{ nombre: string; cantidad: number }>;
+}
+
+/**
+ * Clasificador Semántico Neuronal para WhatsApp.
+ * Interpreta la intención real del usuario independientemente de typos, comas, abreviaturas o modismos ecuatorianos.
+ */
+export async function interpretarIntencionSemantica(
+  textoCliente: string,
+  contextoHistorial?: string,
+  opcionesActivas?: Array<{ id: string; nombre: string; precio: number }>
+): Promise<IntencionSemantica> {
+  const systemPrompt = `Eres el cerebro semántico de LibreríaQR en WhatsApp.
+Tu misión es interpretar mensajes de clientes de papelería en Ecuador sin importar errores ortográficos, abreviaturas, typos ("dicena" = docena = 12, "hijas" = hojas, "tiennes" = tienes), puntuación o modismos.
+
+IMPORTANTE: "100 hojas" o "12 colores" son atributos del producto (grosor/presentación), NO la cantidad a comprar. La cantidad a comprar es 1 a menos que el cliente diga explícitamente "una docena" (12), "media docena" (6), "2 cuadernos" (2), etc.
+
+Debes responder SIEMPRE en formato JSON EXACTO con esta estructura:
+{
+  "intencion": "SALUDO" | "CONSULTA_PRODUCTO" | "SELECCION_OPCION" | "LISTA_COMPUESTA" | "CONFIRMACION" | "REINICIAR" | "OTRO",
+  "producto_principal": "cuaderno" | "esfero" | "pintura" | null,
+  "especificaciones_acumuladas": "cuaderno 100 hojas cuadros espiral" | null,
+  "cantidad_comprar": 1,
+  "opcion_elegida_index": 1 | 2 | null,
+  "items_lista": [ { "nombre": "esfero azul", "cantidad": 6 } ]
+}`;
+
+  const userPrompt = `${systemPrompt}\n\nContexto previo del chat: ${contextoHistorial || 'Ninguno'}\nOpciones mostradas al cliente: ${JSON.stringify(opcionesActivas || [])}\n\nMensaje recibido del cliente: "${textoCliente}"\n\nJSON:`;
+
+  const apiKey = getApiKey('gemini');
+  const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.05,
+        },
+      }),
+    });
+
+    const json = await res.json();
+    const parsedText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (parsedText) {
+      return JSON.parse(parsedText) as IntencionSemantica;
+    }
+  } catch (e: any) {
+    console.warn('[iaAdapter] Error en clasificador semantico:', e?.message);
+  }
+
+  // Fallback seguro
+  return {
+    intencion: 'CONSULTA_PRODUCTO',
+    producto_principal: null,
+    especificaciones_acumuladas: textoCliente,
+    cantidad_comprar: 1,
+    opcion_elegida_index: null,
+    items_lista: [],
+  };
+}

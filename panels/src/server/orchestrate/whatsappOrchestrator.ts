@@ -202,11 +202,11 @@ import {
   CandidatoProducto,
 } from '../services/variantService';
 import { buscarCategoriaParaItem } from '../knowledge/index';
-import { esListaCompuestaUtil } from '../services/displayService';
+import { interpretarIntencionSemantica } from '../adapters/iaAdapter';
 
 /**
- * Procesa mensajes de texto del cliente manteniendo memoria del contexto conversacional.
- * Resuelve ambigüedades, selecciones de opciones (por precio, orden o marca) y cantidades naturales ("docena", etc.).
+ * Procesa mensajes de texto del cliente utilizando el Clasificador Semántico Neuronal.
+ * Es inmune a typos, comas, abreviaturas o formatos inesperados.
  */
 export async function procesarTextoConversacional(
   tenantId: string,
@@ -229,156 +229,109 @@ export async function procesarTextoConversacional(
   const inventario = await getInventarioAsync(tenantId);
   const textoLimpio = textoCliente.trim();
 
-  // 0. Detectar si es una lista compuesta con múltiples útiles escolares
-  // (ej. "media docena de esferos, 2 cuadernos... y una goma")
-  const esListaCompuesta = esListaCompuestaUtil(textoLimpio);
+  // 1. Interpretar semánticamente el mensaje con IA (contexto + historial + opciones)
+  const opcionesPrevias: CandidatoProducto[] = contextoPrevio?.opcionesPresentadas || [];
+  const semantica = await interpretarIntencionSemantica(
+    textoLimpio,
+    contextoPrevio?.resumenHistorial || contextoPrevio?.queryAcumulada,
+    opcionesPrevias
+  );
 
-  if (esListaCompuesta) {
-    const resultado = await procesarListaCliente({
-      tenantId,
-      clienteNombre,
-      clienteTelefono,
-      textoOriginal: textoLimpio,
-    });
+  console.log(`[Semántica IA] Intención: ${semantica.intencion}, Prod: ${semantica.producto_principal}, Specs: ${semantica.especificaciones_acumuladas}, Cant: ${semantica.cantidad_comprar}, OptIndex: ${semantica.opcion_elegida_index}`);
+
+  // 2. Si el cliente envió una lista compuesta con varios útiles
+  if (semantica.intencion === 'LISTA_COMPUESTA' && semantica.items_lista && semantica.items_lista.length > 0) {
+    const cotizacion = await cotizar(tenantId, semantica.items_lista);
+    const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
 
     return {
       tipo: 'cotizacion',
-      resultado,
+      resultado: { paso: 'pedido_creado', cotizacion, pedido },
       nuevoContexto: {
-        pedidoId: resultado.pedido?.id,
-        total: resultado.cotizacion?.total || 0,
-        itemsCount: resultado.cotizacion?.items?.length || 0,
-        // Limpiar consultas anteriores para no arrastrar contexto viejo
+        pedidoId: pedido.id,
+        total: cotizacion.total,
+        itemsCount: cotizacion.items.length,
         queryAcumulada: undefined,
         opcionesPresentadas: [],
+        resumenHistorial: undefined,
       },
     };
   }
 
-  // 1. Verificar si el usuario está respondiendo a opciones presentadas anteriormente
-  const opcionesPrevias: CandidatoProducto[] = contextoPrevio?.opcionesPresentadas || [];
-  const cantidadPrevia = contextoPrevio?.cantidad || 1;
-  const cantEnTexto = extraerCantidadNatural(textoLimpio);
-  const cantidadFinal = cantEnTexto || cantidadPrevia || 1;
+  // 3. Si el cliente está seleccionando una opción presentada
+  if (
+    (semantica.intencion === 'SELECCION_OPCION' || opcionesPrevias.length > 0) &&
+    opcionesPrevias.length > 0
+  ) {
+    let seleccion: CandidatoProducto | null = null;
 
-  if (opcionesPrevias.length > 0) {
-    const seleccion = resolverSeleccionOpcion(textoLimpio, opcionesPrevias);
+    if (semantica.opcion_elegida_index && semantica.opcion_elegida_index <= opcionesPrevias.length) {
+      seleccion = opcionesPrevias[semantica.opcion_elegida_index - 1];
+    } else {
+      seleccion = resolverSeleccionOpcion(textoLimpio, opcionesPrevias);
+    }
 
     if (seleccion) {
-      // El cliente seleccionó una opción concreta (ej. "el de 3.50", "el primero", "1", "Stanford")
-      const cotizacion = await cotizar(tenantId, [
-        { nombre: seleccion.nombre, cantidad: cantidadFinal },
-      ]);
-
-      const pedido = await crearPedido(
-        cotizacion,
-        clienteNombre,
-        clienteTelefono,
-        'whatsapp'
-      );
+      const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
+      const cotizacion = await cotizar(tenantId, [{ nombre: seleccion.nombre, cantidad }]);
+      const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
 
       return {
         tipo: 'cotizacion',
-        resultado: {
-          paso: 'pedido_creado',
-          cotizacion,
-          pedido,
-        },
+        resultado: { paso: 'pedido_creado', cotizacion, pedido },
         nuevoContexto: {
           pedidoId: pedido.id,
           total: cotizacion.total,
           itemsCount: cotizacion.items.length,
           productoConfirmado: seleccion.nombre,
-          cantidad: cantidadFinal,
-          // Limpiar opciones previas una vez seleccionada
+          cantidad,
           queryAcumulada: undefined,
           opcionesPresentadas: [],
+          resumenHistorial: undefined,
         },
       };
     }
   }
 
-  // 2. Detectar si el cliente cambió de producto/categoría (ej. antes cuadernos, ahora pinturas)
-  const catActual = buscarCategoriaParaItem(textoLimpio);
-  const catPrevia = contextoPrevio?.categoriaFamilia;
-  const esCambioDeCategoria = Boolean(catActual && catPrevia && catActual.familia !== catPrevia);
+  // 4. Consulta de producto o variantes
+  const queryBusqueda =
+    semantica.especificaciones_acumuladas ||
+    semantica.producto_principal ||
+    (contextoPrevio?.queryAcumulada ? `${contextoPrevio.queryAcumulada} ${textoLimpio}` : textoLimpio);
 
-  // Si cambió de categoría, empezar con query limpia; si no, acumular especificaciones (ej. "a cuadros", "espiral")
-  const queryBase = (contextoPrevio?.queryAcumulada && !esCambioDeCategoria)
-    ? `${contextoPrevio.queryAcumulada} ${textoLimpio}`
-    : textoLimpio;
-
-  const categoria = catActual || buscarCategoriaParaItem(queryBase);
-
-  // Filtrar candidatos estrictamente de la categoría y atributos mencionados
-  const candidatos = filtrarCandidatosPorCategoria(categoria, queryBase, inventario);
-
-  // Detectar si aún hay ambigüedad entre las opciones encontradas (pasando cantidadFinal para formatear lotes)
-  const resAmb = detectarAmbiguedad(queryBase, candidatos, cantidadFinal);
+  const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
+  const categoria = buscarCategoriaParaItem(queryBusqueda);
+  const candidatos = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
+  const resAmb = detectarAmbiguedad(queryBusqueda, candidatos, cantidad);
 
   if (resAmb.esAmbiguo && resAmb.opcionesDisponibles.length > 1) {
     return {
       tipo: 'pregunta_variante',
       textoPregunta: `¡Con gusto te cotizamos! 📚✏️\n\n${resAmb.preguntaSugerida}\n\n_Escríbenos tu preferencia o si deseas agregar algún otro útil escolar._`,
       nuevoContexto: {
-        queryAcumulada: queryBase,
-        categoriaFamilia: categoria?.familia,
-        cantidad: cantidadFinal,
+        queryAcumulada: queryBusqueda,
+        resumenHistorial: `Cliente busca ${queryBusqueda}. Bot preguntó opciones.`,
+        cantidad,
         opcionesPresentadas: resAmb.opcionesDisponibles,
       },
     };
   }
 
-  // Si ya no hay ambigüedad o hay una opción clara, cotizar el producto
-  let itemsParaCotizar: Array<{ cantidad: number; nombre: string }> = [];
-
-  if (candidatos.length >= 1) {
-    itemsParaCotizar = [{ cantidad: cantidadFinal, nombre: candidatos[0].nombre }];
-  } else {
-    // Parser Groq estándar para listas compuestas
-    const nombresInventario = inventario.map((p) => p.nombre);
-    try {
-      const parseo = await interpretarTexto(textoLimpio, nombresInventario);
-      itemsParaCotizar = parsearLineasGroq(parseo.texto, textoLimpio);
-    } catch {
-      itemsParaCotizar = parsearLineasGroq('', textoLimpio);
-    }
-
-    if (itemsParaCotizar.length === 0) {
-      // Fallback: si tenía cantidad y producto previo
-      if (contextoPrevio?.opcionesPresentadas?.length > 0 && cantEnTexto) {
-        itemsParaCotizar = [
-          { cantidad: cantEnTexto, nombre: contextoPrevio.opcionesPresentadas[0].nombre },
-        ];
-      } else {
-        itemsParaCotizar = [{ cantidad: cantidadFinal, nombre: textoLimpio }];
-      }
-    }
-  }
-
-  const cotizacion = await cotizar(tenantId, itemsParaCotizar);
-  const pedido = await crearPedido(
-    cotizacion,
-    clienteNombre,
-    clienteTelefono,
-    'whatsapp'
-  );
+  // Si ya no es ambiguo, cotizar el producto
+  const itemNombre = candidatos.length > 0 ? candidatos[0].nombre : queryBusqueda;
+  const cotizacion = await cotizar(tenantId, [{ cantidad, nombre: itemNombre }]);
+  const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
 
   return {
     tipo: 'cotizacion',
-    resultado: {
-      paso: 'pedido_creado',
-      cotizacion,
-      pedido,
-    },
+    resultado: { paso: 'pedido_creado', cotizacion, pedido },
     nuevoContexto: {
       pedidoId: pedido.id,
       total: cotizacion.total,
       itemsCount: cotizacion.items.length,
-      // Limpiar query acumulada al cerrar la cotización
       queryAcumulada: undefined,
       opcionesPresentadas: [],
-      cantidad: cantidadFinal,
+      resumenHistorial: undefined,
     },
   };
 }
