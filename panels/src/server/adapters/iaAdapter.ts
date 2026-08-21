@@ -452,6 +452,11 @@ REGLAS CRÍTICAS:
    - "intencion": "LISTA_COMPUESTA"
    - "items_lista": DEBE incluir los productos previos ya cotizados en el historial MÁS el nuevo producto con sus cantidades.
 
+10. PAQUETES vs UNIDADES / CIENTOS / RESMAS (CONVERSIÓN COMERCIAL):
+   - "1 ciento de cartulinas" = 100 hojas de cartulina. Si el producto de catálogo es "Paquete de cartulinas ... 25 unidades", cotiza 4 paquetes (100 / 25 = 4). NUNCA cotices 100 paquetes.
+   - "1 resma de papel" = 1 unidad de resma (1 paquete de 500 hojas). La cantidad a cotizar es 1.
+   - "1 docena" = 12 unidades. "media docena" = 6 unidades. "1 par" = 2 unidades.
+
 RESPONDE SIEMPRE en JSON EXACTO:
 {
   "intencion": "SALUDO" | "CONSULTA_PRODUCTO" | "SELECCION_OPCION" | "LISTA_COMPUESTA" | "CONFIRMACION" | "REINICIAR" | "OTRO",

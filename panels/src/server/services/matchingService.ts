@@ -231,10 +231,21 @@ export async function cotizar(tenantId: string, lista: EntradaCotizar[]): Promis
     }
 
     if (mejorMatch && mejorSimilitud >= 0.65) {
+      let cantidadFinal = item.cantidad;
+
+      // Si el producto se vende en paquetes (ej. "Paquete de 25 unidades") y la cantidad pedida es un número grande de hojas/unidades (ej. 100 por "1 ciento")
+      const matchUnds = mejorMatch.nombre.match(/\b(\d+)\s*(?:unidades|unid|und)\b/i);
+      if (matchUnds && cantidadFinal >= 50) {
+        const undsPorPaquete = parseInt(matchUnds[1], 10);
+        if (undsPorPaquete > 1 && cantidadFinal % undsPorPaquete === 0) {
+          cantidadFinal = cantidadFinal / undsPorPaquete;
+        }
+      }
+
       items.push({
         productoId: mejorMatch.id,
         nombre: mejorMatch.nombre,
-        cantidad: item.cantidad,
+        cantidad: cantidadFinal,
         precioUnitario: mejorMatch.precio,
         matchConfidence: mejorSimilitud >= 0.85 ? 'alta' : 'baja',
       });
