@@ -12,6 +12,7 @@ import {
   detectarAmbiguedad,
   filtrarCandidatosPorCategoria,
   resolverSeleccionOpcion,
+  norm,
   CandidatoProducto,
 } from '../services/variantService';
 import {
@@ -76,6 +77,13 @@ export async function despacharMensajeWhatsApp(
 
   const opcionesActivas = contextoPrevio?.opcionesPresentadas || [];
 
+  // Saludo puro directo (evita confusión con títulos de productos como "Buenas Noches")
+  const textoMin = textoLimpio.toLowerCase().trim().replace(/[.,!¡?¿]/g, '');
+  const saludosPuros = ['hola', 'buenas', 'buenas tardes', 'buenos dias', 'buenos días', 'buenas noches', 'que tal', 'saludos'];
+  if (saludosPuros.includes(textoMin)) {
+    return handleSaludo();
+  }
+
   // 2. Clasificación Semántica por IA
   const semantica = await interpretarIntencionSemantica(
     textoLimpio,
@@ -83,13 +91,81 @@ export async function despacharMensajeWhatsApp(
     opcionesActivas
   );
 
-  // Si hay opciones activas en pantalla y el texto coincide directamente con una de ellas (ej. "stitch", "avengers", "el 4"), forzar SELECCION_OPCION
-  if (opcionesActivas.length > 0 && semantica.intencion !== 'REINICIAR' && semantica.intencion !== 'SALUDO') {
+  // Si hay opciones activas en pantalla y el cliente está seleccionando una de ellas (ej. "stitch", "el 4"), confirmar SELECCION_OPCION
+  if (
+    opcionesActivas.length > 0 &&
+    semantica.intencion !== 'REINICIAR' &&
+    semantica.intencion !== 'SALUDO' &&
+    semantica.intencion !== 'CONSULTA_PRODUCTO' &&
+    semantica.intencion !== 'LISTA_COMPUESTA'
+  ) {
     const matchDirecto = resolverSeleccionOpcion(textoLimpio, opcionesActivas);
     if (matchDirecto) {
       semantica.intencion = 'SELECCION_OPCION';
     }
   }
+
+  // ─── REGLAS DETERMINÍSTICAS (corrigen comportamientos de la IA cuando falla) ───
+
+  // R1: Si el producto_principal es null, recuperarlo del contexto previo
+  if (!semantica.producto_principal && !semantica.especificaciones_acumuladas && contextoPrevio?.queryAcumulada) {
+    semantica.especificaciones_acumuladas = contextoPrevio.queryAcumulada;
+  }
+
+  // R2: Detectar "Mejor N" / "solo N" / "mejor ponme N" → cambio de cantidad sobre producto activo en contexto
+  const textoNormQ = textoMin.replace(/[¿?¡!]/g, '').trim();
+  const matchCambioQty = textoNormQ.match(/^(mejor|solo|son|dame|quiero|ponme|cambiar?|cambi[aá]me?)\s+(\d+)$|^(\d+)\s*(nomas?|no mas?|mejor)$/i);
+  const matchCantNum = textoNormQ.match(/^\d+$/);
+  if (
+    contextoPrevio?.carrito?.length &&
+    (matchCambioQty || matchCantNum) &&
+    semantica.intencion !== 'LISTA_COMPUESTA'
+  ) {
+    const nuevaCantidad = parseInt(matchCambioQty?.[2] || matchCambioQty?.[3] || textoNormQ, 10);
+    if (!isNaN(nuevaCantidad) && nuevaCantidad > 0) {
+      // Rehacer cotización con la cantidad cambiada
+      const carritoActual = contextoPrevio.carrito;
+      const ultimoItem = carritoActual[carritoActual.length - 1];
+      if (ultimoItem) {
+        const nuevoCarrito = [
+          ...carritoActual.slice(0, -1),
+          { ...ultimoItem, cantidad: nuevaCantidad }
+        ];
+        return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
+      }
+    }
+  }
+
+  // R3: "¿Cuánto cuesta?" / "¿Qué precio tiene?" con opciones presentadas → responder con precios
+  // Solo activa si las opciones coinciden con lo que el cliente preguntó previamente
+  const preguntaPrecio = /^(cu[aá]nto cuesta|cu[aá]nto vale|cu[aá]l es el precio|qu[eé] precio|a cu[aá]nto est[aá])/i.test(textoNormQ);
+  if (preguntaPrecio && opcionesActivas.length > 0 && contextoPrevio?.queryAcumulada) {
+    // Verificar que las opciones activas son relevantes al tema de la conversación
+    const queryCtx = norm(contextoPrevio.queryAcumulada);
+    const opcionesRelevantes = opcionesActivas.some((o) => {
+      const oNorm = norm(o.nombre);
+      return queryCtx.split(' ').filter(w => w.length > 3).some(w => oNorm.includes(w));
+    });
+    if (opcionesRelevantes) {
+      const precios = opcionesActivas
+        .slice(0, 10)
+        .map((o, i) => `${i + 1}️⃣ *${limpiarNombreERP(o.nombre)}* — $${o.precio.toFixed(2)} c/u`)
+        .join('\n');
+      return {
+        tipo: 'pregunta_variante',
+        textoRespuesta: `¡Aquí los precios disponibles! 💰\n\n${precios}\n\n¿Cuál te interesa?`,
+        nuevoContexto: { ...contextoPrevio, historialMensajes: historial },
+      };
+    }
+  }
+
+  // R4: Confirmación determinística si el cliente responde "sí", "confirmo", "dale", "listo" teniendo una cotización activa
+  const esConfirmacion = /^(s[ií]|confirmo|si confirmo|s[ií] confirmo|confirmo el pedido|s[ií] confirmo el pedido|s[ií],?\s*listo confirmo|confirmo mi compra|confirmo mi pedido|dale|de acuerdo|listo|perfecto confirmo)/i.test(textoNormQ);
+  if (esConfirmacion && contextoPrevio?.carrito?.length) {
+    return await handleConfirmacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio);
+  }
+
+  // ─── FIN REGLAS DETERMINÍSTICAS ───────────────────────────────────────────────
 
   console.log(`[BotRouter] Intención: ${semantica.intencion} | Prod: ${semantica.producto_principal} | Cant: ${semantica.cantidad_comprar} | OptIndex: ${semantica.opcion_elegida_index}`);
 
@@ -480,6 +556,22 @@ async function handleConsultaProducto(
 
   const historial = contextoPrevio?.historialMensajes || [];
 
+  // Si no hay productos ni alternativas en stock, responder directamente sin alucinar
+  if (candidatosExactos.length === 0 && alternativas.length === 0) {
+    return {
+      tipo: 'mensaje_directo',
+      textoRespuesta: `¡Hola! Por el momento no disponemos de ese producto en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?`,
+      nuevoContexto: {
+        ...contextoPrevio,
+        historialMensajes: [
+          ...historial.slice(-7),
+          { role: 'user', texto: textoCliente },
+          { role: 'model', texto: `¡Hola! Por el momento no disponemos de ese producto en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?` },
+        ],
+      },
+    };
+  }
+
   // Llamar al Agente de Ventas con verificación de stock real y alternativas
   const respVentas = await generarRespuestaVentas(
     historial,
@@ -512,11 +604,25 @@ async function handleConsultaProducto(
     });
   }
 
+  // Formatear mensaje final garantizando que nunca sea nulo o vacío
+  let mensajeFinal = respVentas.mensaje_whatsapp;
+  if (!mensajeFinal || mensajeFinal.trim().length === 0) {
+    if (listaOpciones.length > 0) {
+      const opts = listaOpciones
+        .slice(0, 8)
+        .map((o, i) => `${i + 1}️⃣ *${limpiarNombreERP(o.nombre)}* — $${o.precio.toFixed(2)} c/u`)
+        .join('\n');
+      mensajeFinal = `¡Hola! Sí tenemos opciones disponibles en stock:\n\n${opts}\n\n¿Cuál de estas te gustaría llevar o cuántas unidades necesitas?`;
+    } else {
+      mensajeFinal = `¡Hola! Por el momento no disponemos de ese producto específico en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?`;
+    }
+  }
+
   // Si es conversación, duda o pregunta sobre opciones
   // Guardar TODAS las opciones para que el índice del usuario coincida con el orden de la IA
   return {
     tipo: 'pregunta_variante',
-    textoRespuesta: respVentas.mensaje_whatsapp,
+    textoRespuesta: mensajeFinal,
     nuevoContexto: {
       queryAcumulada: queryBusqueda,
       cantidad,

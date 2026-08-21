@@ -11,7 +11,7 @@ import type { CategoriaConocimiento } from './types';
 
 import { CUADERNOS } from './cuadernos';
 import { CARPETAS } from './carpetas';
-import { LAPICES, BORRADORES, SACAPUNTAS, CORRECTORES, REGLAS } from './escritura';
+import { LAPICES, BOLIGRAFOS, BORRADORES, SACAPUNTAS, CORRECTORES, REGLAS } from './escritura';
 import { PINTURAS_COLOR, MARCADORES, CRAYONES, TEMPERAS, PINCELES } from './pinturas';
 import { CARTULINAS, PAPELES_Y_RESMAS } from './papeles';
 import { GOMAS_Y_ADHESIVOS, TIJERAS, FOMIX, PLASTILINA } from './manualidades';
@@ -21,6 +21,7 @@ import { PALILLOS, AGENDAS } from './varios';
 export const TODAS_LAS_CATEGORIAS: CategoriaConocimiento[] = [
   CUADERNOS,
   CARPETAS,
+  BOLIGRAFOS,
   LAPICES,
   BORRADORES,
   SACAPUNTAS,

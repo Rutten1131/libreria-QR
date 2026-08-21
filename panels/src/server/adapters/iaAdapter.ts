@@ -48,9 +48,9 @@ const MODELOS: Record<string, ModeloPerfil> = {
     id: 'openai/gpt-oss-120b',
     vision: false,
     proveedor: 'groq',
-    descripcion: 'Groq GPT-OSS 120B — Parser de texto ultra-rápido (<1s).',
-    temperature: 0.01,
-    timeoutMs: 10000,
+    descripcion: 'Groq GPT-OSS 120B — Parsing ultra-rápido en LPUs (~0.2s).',
+    temperature: 0.05,
+    timeoutMs: 8000,
   },
   GEMINI_TEXT: {
     id: 'gemini-3.5-flash-lite',
@@ -87,11 +87,14 @@ export interface LLMResult {
   fuente: Fuente;
 }
 
+let geminiKeyIndex = 0;
 function getApiKey(proveedor: ProveedorIA): string {
   if (proveedor === 'gemini') {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error('GEMINI_API_KEY no esta en .env');
-    return key;
+    const keys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP].filter(Boolean) as string[];
+    if (keys.length === 0) throw new Error('GEMINI_API_KEY no esta en .env');
+    const selected = keys[geminiKeyIndex % keys.length];
+    geminiKeyIndex = (geminiKeyIndex + 1) % keys.length;
+    return selected;
   }
   if (proveedor === 'groq') {
     const key = process.env.GROQ_API_KEY;
@@ -481,35 +484,74 @@ ${opcionesTexto || '(Ninguna — no se han mostrado opciones aún)'}
 
 Clasifica la intención del último mensaje. JSON:`;
 
-  const apiKey = getApiKey('gemini');
-  const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP].filter(Boolean) as string[];
 
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: systemPrompt }] },
-          { role: 'model', parts: [{ text: 'Entendido. Clasificaré la intención del cliente considerando todo el historial del chat y las opciones presentadas. Respondo siempre en JSON.' }] },
-          { role: 'user', parts: [{ text: userPrompt }] },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.05,
-        },
-      }),
-    });
+  for (const apiKey of geminiKeys) {
+    try {
+      const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            { role: 'user', parts: [{ text: systemPrompt }] },
+            { role: 'model', parts: [{ text: 'Entendido. Clasificaré la intención del cliente considerando todo el historial del chat y las opciones presentadas. Respondo siempre en JSON.' }] },
+            { role: 'user', parts: [{ text: userPrompt }] },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.05,
+          },
+        }),
+      });
 
-    const json = await res.json();
-    const parsedText = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (parsedText) {
-      const result = JSON.parse(parsedText) as IntencionSemantica;
-      console.log(`[iaAdapter Semántica] Intención: ${result.intencion}, Prod: ${result.producto_principal}, Specs: ${result.especificaciones_acumuladas}, Cant: ${result.cantidad_comprar}, OptIdx: ${result.opcion_elegida_index}`);
-      return result;
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `HTTP ${res.status}`);
+      }
+
+      const json = await res.json();
+      const parsedText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (parsedText) {
+        const result = JSON.parse(parsedText) as IntencionSemantica;
+        console.log(`[iaAdapter Semántica] Intención: ${result.intencion}, Prod: ${result.producto_principal}, Specs: ${result.especificaciones_acumuladas}, Cant: ${result.cantidad_comprar}, OptIdx: ${result.opcion_elegida_index}`);
+        return result;
+      }
+    } catch (e: any) {
+      console.warn(`[iaAdapter] Gemini semántica key falló (${e?.message?.slice(0, 60)}), intentando siguiente key...`);
     }
-  } catch (e: any) {
-    console.warn('[iaAdapter] Error en clasificador semantico:', e?.message);
+  }
+
+  // Fallback con Groq ultra-rápido si Gemini falló o rate-limitó
+  try {
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+      const resGroq = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${groqKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-oss-120b',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.05,
+        })
+      });
+      const dataGroq = await resGroq.json();
+      const content = dataGroq.choices?.[0]?.message?.content;
+      if (content) {
+        const result = JSON.parse(content) as IntencionSemantica;
+        console.log(`[iaAdapter Groq Fallback Semántica] Intención: ${result.intencion}, Prod: ${result.producto_principal}`);
+        return result;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[iaAdapter] Fallback Groq semántica error:', err?.message);
   }
 
   // Fallback seguro
@@ -611,32 +653,71 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
     parts: [{ text: ultimoMensajeCliente }],
   });
 
-  const apiKey = getApiKey('gemini');
-  const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP].filter(Boolean) as string[];
 
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: promptContents,
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      }),
-    });
+  for (const apiKey of geminiKeys) {
+    try {
+      const url = `${GEMINI_API_BASE}/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: promptContents,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        }),
+      });
 
-    const json = await res.json();
-    const parsedText =
-      json.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text ||
-      json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `HTTP ${res.status}`);
+      }
 
-    if (parsedText) {
-      return JSON.parse(parsedText) as RespuestaAgenteVentas;
+      const json = await res.json();
+      const parsedText =
+        json.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text ||
+        json.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (parsedText) {
+        return JSON.parse(parsedText) as RespuestaAgenteVentas;
+      }
+    } catch (e: any) {
+      console.warn(`[iaAdapter] Gemini ventas key falló (${e?.message?.slice(0, 60)}), intentando siguiente key...`);
     }
-  } catch (e: any) {
-    console.warn('[iaAdapter] Error en agente de ventas:', e?.message);
+  }
+
+  // Fallback con Groq ultra-rápido para ventas
+  try {
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+      const groqMessages = [
+        { role: 'system', content: systemPrompt },
+        ...historial.slice(-4).map((m) => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.texto })),
+        { role: 'user', content: ultimoMensajeCliente },
+      ];
+      const resGroq = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-oss-120b',
+          messages: groqMessages,
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+        }),
+      });
+      const dataGroq = await resGroq.json();
+      const content = dataGroq.choices?.[0]?.message?.content;
+      if (content) {
+        return JSON.parse(content) as RespuestaAgenteVentas;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[iaAdapter] Fallback Groq ventas error:', err?.message);
   }
 
   const fallbackOpciones = productosEnStock

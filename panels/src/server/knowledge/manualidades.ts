@@ -13,8 +13,8 @@ import type { CategoriaConocimiento } from './types';
 export const GOMAS_Y_ADHESIVOS: CategoriaConocimiento = {
   familia: 'goma',
   disparadores: [
-    'goma', 'gomas', 'pega', 'pegamento', 'silicona',
-    'barra de silicona', 'silicona liquida', 'silicona líquida', 'pritt'
+    'goma', 'gomas', 'pega', 'pegar', 'para pegar', 'pegamento', 'pegamentos', 'silicona',
+    'barra de silicona', 'silicona liquida', 'silicona líquida', 'pritt', 'adhesivo', 'adhesivos'
   ],
   dimensiones: [
     {

@@ -101,8 +101,8 @@ export function filtrarCandidatosPorCategoria(
 
   // 1. Filtrar productos que pertenezcan a la familia o tengan el sustantivo principal
   let candidatos = inventario.filter((p) => {
-    // Si tiene precio ridículo o placeholder (< 0.15) de ERP corrupto, descartar a menos que no haya más
-    if (p.precio < 0.15 && inventario.some((otro) => otro.precio >= 0.50)) {
+    // Descartar solo si el precio es inválido o menor/igual a cero
+    if (!p.precio || p.precio <= 0) {
       return false;
     }
 
@@ -158,6 +158,20 @@ export function filtrarCandidatosPorCategoria(
       return pn.includes(numHojas);
     });
     if (filtrados.length > 0) candidatos = filtrados;
+  }
+
+  // 4. Post-filtro de pureza: si la categoría es "boligrafo", priorizar productos cuyo sustantivo PRINCIPAL sea bolígrafo/esfero
+  //    y no libretas/cuadernos que incluyen "+BOLIG" como accesorio
+  if (categoria?.familia === 'boligrafo') {
+    const puros = candidatos.filter((p) => {
+      const pn = norm(p.nombre);
+      const pnClean = norm(limpiarNombreERP(p.nombre));
+      // El producto ES un bolígrafo si su nombre comienza con boligrafo/esfero/pluma O no es libreta/cuaderno
+      const esPuro = /^(boligrafo|esfero|pluma|pen |lapicero)/.test(pn) || /^(boligrafo|esfero|pluma|pen |lapicero)/.test(pnClean);
+      const esAccesorio = /libreta|cuaderno|agenda|block|kit/.test(pn);
+      return esPuro || !esAccesorio;
+    });
+    if (puros.length > 0) candidatos = puros;
   }
 
   return candidatos;

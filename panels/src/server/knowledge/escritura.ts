@@ -82,3 +82,30 @@ export const REGLAS: CategoriaConocimiento = {
   ],
   preguntaGenerica: '¿Necesitas regla simple, juego de geometría completo o solo el compás?',
 };
+
+export const BOLIGRAFOS: CategoriaConocimiento = {
+  familia: 'boligrafo',
+  disparadores: [
+    'esfero', 'esferos', 'boligrafo', 'bolígrafo', 'boligrafos', 'bolígrafos',
+    'pluma', 'plumas', 'lapicero', 'lapiceros', 'esferografico', 'esferográficos',
+    'para escribir', 'algo para escribir', 'escribir'
+  ],
+  dimensiones: [
+    {
+      nombre: 'color',
+      pregunta: '¿En qué color lo prefieres (*azul*, *negro*, *rojo* o *surtido*)?',
+      opciones: ['azul', 'negro', 'rojo', 'verde', 'surtido'],
+    },
+    {
+      nombre: 'tipo',
+      pregunta: '¿Lo prefieres *punta fina*, *punta media* o *de gel / tinta líquida*?',
+      opciones: ['punta fina', 'punta media', 'gel', 'tinta líquida', 'roller'],
+    },
+    {
+      nombre: 'marca',
+      pregunta: '¿Tienes preferencia de marca?',
+      opciones: ['bic', 'artesco', 'luxor', 'kuromi', 'pelikan', 'pilot', 'papermate'],
+    },
+  ],
+  preguntaGenerica: 'Para el *esfero/bolígrafo*, ¿en qué color y punta (fina o media) lo prefieres?',
+};

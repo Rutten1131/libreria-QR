@@ -24,7 +24,7 @@ export const CINTAS_ADHESIVAS: CategoriaConocimiento = {
 
 export const ACCESORIOS_OFICINA: CategoriaConocimiento = {
   familia: 'oficina',
-  disparadores: ['clips', 'clip', 'grapas', 'grapadora', 'perforadora', 'chinchetas'],
+  disparadores: ['clips', 'clip', 'grapas', 'grapadora', 'perforadora', 'chinchetas', 'oficina', 'para oficina', 'material de oficina'],
   dimensiones: [
     {
       nombre: 'tipo',
