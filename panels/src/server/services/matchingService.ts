@@ -59,6 +59,7 @@ function lematizar(palabra: string): string {
   if (palabra === 'palillos' || palabra === 'palitos' || palabra === 'palillo') return 'palillo';
   if (palabra === 'agendas' || palabra === 'agenda') return 'agenda';
   if (palabra === 'esferos' || palabra === 'esfero' || palabra === 'boligrafo' || palabra === 'boligrafos') return 'esfero';
+  if (palabra === 'bicolores' || palabra === 'bicolor') return 'bicolor';
   return palabra;
 }
 
@@ -111,6 +112,9 @@ function calcularSimilitudInteligente(itemTexto: string, productoTexto: string):
   if (itemNorm.includes('linea') && prodNorm.includes('cuadro')) return 0;
   if (itemNorm.includes('2b') && prodNorm.includes('hb')) return 0;
   if (itemNorm.includes('hb') && prodNorm.includes('2b')) return 0;
+
+  // Si el cliente pide cuadernos normales, NO emparejar con libros parvularios de preescolar
+  if (!itemNorm.includes('parvulario') && prodNorm.includes('parvulario')) return 0;
 
   let matches = 0;
   let hasMainNoun = false;

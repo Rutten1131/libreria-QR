@@ -457,6 +457,10 @@ REGLAS CRÍTICAS:
    - "1 resma de papel" = 1 unidad de resma (1 paquete de 500 hojas). La cantidad a cotizar es 1.
    - "1 docena" = 12 unidades. "media docena" = 6 unidades. "1 par" = 2 unidades.
 
+11. EXTRACCIÓN EXHAUSTIVA DE LISTAS DE ÚTILES:
+   - Cuando el cliente pide múltiples útiles (ej. cuadernos, lápices bicolores, tijeras, borradores), DEBES extraer ABSOLUTAMENTE TODOS los ítems en "items_lista" sin omitir ninguno.
+   - Si incluye una pregunta adicional (ej. "¿Hacen entregas a domicilio?"), clasifícalo como "LISTA_COMPUESTA" y asegúrate de no omitir ningún producto.
+
 RESPONDE SIEMPRE en JSON EXACTO:
 {
   "intencion": "SALUDO" | "CONSULTA_PRODUCTO" | "SELECCION_OPCION" | "LISTA_COMPUESTA" | "CONFIRMACION" | "REINICIAR" | "OTRO",

@@ -110,7 +110,7 @@ export async function despacharMensajeWhatsApp(
       break;
 
     case 'LISTA_COMPUESTA':
-      resultado = await handleListaCompuesta(tenantId, clienteNombre, clienteTelefono, semantica, contextoPrevio);
+      resultado = await handleListaCompuesta(tenantId, clienteNombre, clienteTelefono, textoLimpio, semantica, contextoPrevio);
       break;
 
     case 'SELECCION_OPCION':
@@ -214,7 +214,8 @@ async function generarRespuestaCotizacion(
   clienteNombre: string,
   clienteTelefono: string,
   itemsCarrito: ItemCarrito[],
-  contextoPrevio?: RouterContexto
+  contextoPrevio?: RouterContexto,
+  textoClienteOriginal?: string
 ): Promise<ResultadoRouter> {
   const cotizacion = await cotizar(
     tenantId,
@@ -235,7 +236,39 @@ async function generarRespuestaCotizacion(
   const sugerencia = generarSugerenciaVentaCruzada(cotizacion.items.map((i) => i.nombre));
   const textoSug = sugerencia ? sugerencia.textoSugerencia : '';
 
-  const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar algo más.`;
+  // Responder preguntas frecuentes si el cliente las incluyó en su mensaje
+  let extraNota = '';
+  const textoMin = (textoClienteOriginal || '').toLowerCase();
+  if (
+    textoMin.includes('domicilio') ||
+    textoMin.includes('entrega') ||
+    textoMin.includes('envio') ||
+    textoMin.includes('envían') ||
+    textoMin.includes('envian')
+  ) {
+    extraNota += '\n\n🛵 *Entregas:* ¡Sí realizamos entregas a domicilio y también puedes retirar tu pedido directamente en nuestra tienda!';
+  }
+  if (
+    textoMin.includes('local') ||
+    textoMin.includes('direccion') ||
+    textoMin.includes('dirección') ||
+    textoMin.includes('donde estan') ||
+    textoMin.includes('dónde están') ||
+    textoMin.includes('ubicacion') ||
+    textoMin.includes('ubicación')
+  ) {
+    extraNota += '\n\n📍 *Atención:* También te atendemos con gusto en nuestro local físico.';
+  }
+
+  // Si se cotizaron cuadernos sin especificar formato, agregar nota amigable de opciones
+  const hayCuadernos = cotizacion.items.some((i) => i.nombre.toLowerCase().includes('cuaderno'));
+  let notaOpciones = '';
+  if (hayCuadernos && cotizacion.items.length > 1) {
+    notaOpciones =
+      '\n\n💡 *Opciones de Cuadernos:* Te cotizamos en modelo cosido económico. Si prefieres con espiral/anillado o de marcas específicas (Norma, Kiut, etc.), ¡avísanos y con gusto te damos las opciones!';
+  }
+
+  const texto = `📋 *Cotización de Útiles* 📋\nPedido ${pedidoNum}\n\n${itemsTexto}\n\n💰 *TOTAL ESTIMADO: $${cotizacion.total.toFixed(2)}*${textoSug}${extraNota}${notaOpciones}\n\n👉 *¿Deseas confirmar tu pedido?*\nResponde *SÍ* para confirmar o indícanos si deseas agregar o cambiar algo.`;
 
   return {
     tipo: 'cotizacion',
@@ -273,6 +306,7 @@ async function handleListaCompuesta(
   tenantId: string,
   clienteNombre: string,
   clienteTelefono: string,
+  textoCliente: string,
   semantica: IntencionSemantica,
   contextoPrevio?: RouterContexto
 ): Promise<ResultadoRouter> {
@@ -293,11 +327,14 @@ async function handleListaCompuesta(
     const idsNuevos = new Set(itemsNuevos.map((i) => i.productoId));
     const viejosQueNoEstan = contextoPrevio.carrito.filter((v) => !idsNuevos.has(v.productoId));
     if (viejosQueNoEstan.length > 0 && itemsNuevos.length > 0) {
-      carritoFinal = [...contextoPrevio.carrito, ...itemsNuevos.filter(n => !contextoPrevio.carrito!.some(c => c.productoId === n.productoId))];
+      carritoFinal = [
+        ...contextoPrevio.carrito,
+        ...itemsNuevos.filter((n) => !contextoPrevio.carrito!.some((c) => c.productoId === n.productoId)),
+      ];
     }
   }
 
-  return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, carritoFinal, contextoPrevio);
+  return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, carritoFinal, contextoPrevio, textoCliente);
 }
 
 // ─── HANDLER 4: SELECCIÓN O CORRECCIÓN DE OPCIÓN ───────────────────────
@@ -364,7 +401,7 @@ async function handleSeleccionOpcion(
       ];
     }
 
-    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio);
+    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
   }
 
   // 3. Si no hay selección nueva pero el usuario está corrigiendo cantidad (ej. "pero una docena")
@@ -382,7 +419,7 @@ async function handleSeleccionOpcion(
         cantidad: semantica.cantidad_comprar || cantidad,
       },
     ];
-    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio);
+    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
   }
 
   // Si no se encontró la opción, derivar a consulta general
