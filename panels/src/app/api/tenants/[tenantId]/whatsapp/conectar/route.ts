@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
-import { crearInstancia, configurarWebhook, obtenerQR } from '@/server/adapters/evolutionAdapter';
+import { crearInstancia, configurarWebhook, obtenerQR, logoutInstancia } from '@/server/adapters/evolutionAdapter';
 
 function instanceNameFromId(tenantId: string): string {
   return `qr_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50)}`;
@@ -51,7 +51,13 @@ export async function POST(
       await configurarWebhook(instanceName, `${webhookBase}/api/whatsapp/webhook`);
     } catch {}
 
-    const qrResult = await obtenerQR(instanceName);
+    let qrResult = await obtenerQR(instanceName);
+
+    // Si la instancia existía pero no devuelve QR (ej. sesión cerrada o estado stale), forzar logout y reintentar
+    if (!qrResult?.base64) {
+      await logoutInstancia(instanceName);
+      qrResult = await obtenerQR(instanceName);
+    }
 
     await sb.from('tenant_whatsapp').upsert(
       {

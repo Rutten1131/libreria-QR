@@ -64,10 +64,23 @@ export function useTenantContext() {
 
   useEffect(() => {
     const stored = getStoredTenant();
-    if (stored?.id !== tenant?.id) {
-      setTenantState(stored);
+    if (stored?.id) {
+      if (stored.id !== tenant?.id || stored.nombre !== tenant?.nombre) {
+        setTenantState(stored);
+      }
+      // Sincronizar nombre real desde la BD si difiere del almacenamiento local
+      fetch(`/api/tenants/${stored.id}`)
+        .then((r) => r.json())
+        .then((d) => {
+          const freshNombre = d?.tenant?.nombre;
+          if (freshNombre && freshNombre !== stored.nombre) {
+            setStoredTenant(stored.id, freshNombre);
+            setTenantState({ id: stored.id, nombre: freshNombre });
+          }
+        })
+        .catch(() => {});
     }
-  }, [tenant]);
+  }, [tenant?.id, tenant?.nombre]);
 
   const login = useCallback((id: string, nombre?: string) => {
     setStoredTenant(id, nombre);

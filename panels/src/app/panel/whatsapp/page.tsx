@@ -65,12 +65,12 @@ export default function TenantWhatsappPage() {
           const newNumero = (wa.numero_whatsapp || data.numero || '')
             .replace(/[^0-9]/g, '');
 
-          setStatus((prev) => ({
+          setStatus({
             estado: newEstado,
-            numero: newNumero || prev.numero,
-            qr: newEstado === 'conectado' ? null : (wa.evolution_qr || data.qr || prev.qr),
-            instanceName: wa.evolution_instance_name || data.instanceName || prev.instanceName,
-          }));
+            numero: newEstado === 'conectado' ? newNumero : '',
+            qr: newEstado === 'conectado' ? null : (wa.evolution_qr || data.qr || null),
+            instanceName: wa.evolution_instance_name || data.instanceName || '',
+          });
         } catch {}
       }
     } catch {
@@ -378,6 +378,28 @@ export default function TenantWhatsappPage() {
                 <p className="lqr-connected-sub">
                   Número vinculado: <strong>{status.numero ? `+${status.numero}` : 'Detectado'}</strong>. El bot está respondiendo en vivo.
                 </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handleDesconectar}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: 'rgba(239, 68, 68, 0.2)',
+                      border: '1px solid rgba(239, 68, 68, 0.5)',
+                      color: '#fca5a5',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    🔄 Desvincular para conectar otro celular
+                  </button>
+                </div>
 
                 <div className="lqr-connected-steps">
                   <div className="lqr-step-box">

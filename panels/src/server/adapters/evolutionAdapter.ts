@@ -134,6 +134,18 @@ export async function configurarWebhook(
   }
 }
 
+export async function logoutInstancia(instanceName: string): Promise<void> {
+  if (stubActivo()) return;
+  try {
+    await fetchConRetry(`${EVOLUTION_BASE_URL}/instance/logout/${instanceName}`, {
+      method: 'DELETE',
+      headers: headers(),
+    });
+  } catch (e: any) {
+    console.warn(`[Evolution Logout Warning]`, e.message);
+  }
+}
+
 /* ============================================================
    C. OBTENER QR
    Devuelve base64 listo para <img src="data:image/png;base64,...">.

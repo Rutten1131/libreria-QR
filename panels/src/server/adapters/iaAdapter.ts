@@ -603,7 +603,7 @@ export async function generarRespuestaVentas(
   productosEnStock: Array<{ id: string; nombre: string; precio: number; marca?: string }>,
   alternativasEnStock: Array<{ id: string; nombre: string; precio: number; marca?: string }> = [],
   hayCoincidenciaExacta: boolean = true,
-  nombreLibreria: string = 'Librería Prueba'
+  nombreLibreria: string = 'Santiago Papelería'
 ): Promise<RespuestaAgenteVentas> {
   const stockTexto = productosEnStock
     .map((p, i) => `${i + 1}. ${p.nombre} — $${p.precio.toFixed(2)} c/u`)

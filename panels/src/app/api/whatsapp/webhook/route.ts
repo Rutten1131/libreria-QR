@@ -236,7 +236,8 @@ export async function POST(req: NextRequest) {
           textoLimpio,
           datos.pushName || 'Cliente WhatsApp',
           datos.numero,
-          contextoPrevio
+          contextoPrevio,
+          nombreLibreria
         );
 
         console.log(`[BotRouter Result] tipo=${resultado.tipo} pedido=${resultado.pedidoId || 'N/A'} total=${resultado.total || 'N/A'}`);

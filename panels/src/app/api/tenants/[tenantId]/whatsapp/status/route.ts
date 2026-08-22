@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
 import { consultarDetalleInstancia, obtenerQR } from '@/server/adapters/evolutionAdapter';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { tenantId: string } }
 ) {
   const rawId = params.tenantId.trim();
   const cleanPhone = rawId.replace(/[^0-9]/g, '');
+
+  console.log(`[STATUS ENDPOINT CALLED] rawId=${rawId}`);
 
   try {
     const sb = getSupabase();
@@ -59,20 +64,19 @@ export async function GET(
     const detalle = await consultarDetalleInstancia(tw.evolution_instance_name);
     const estado = detalle.estado;
     let currentQR = tw.evolution_qr;
-    let numeroReal = detalle.phoneNumber || tw.numero_whatsapp;
+    // El número vinculado es ÚNICAMENTE el que Evolution API reporta en vivo si está conectado
+    let numeroReal = (estado === 'conectado' && detalle.phoneNumber) ? detalle.phoneNumber : null;
 
-    if (numeroReal && numeroReal.length >= 8) {
-      try {
-        await sb
-          .from('tenant_whatsapp')
-          .update({
-            numero_whatsapp: numeroReal,
-            evolution_state: estado,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('tenant_id', tw.tenant_id);
-      } catch {}
-    }
+    try {
+      await sb
+        .from('tenant_whatsapp')
+        .update({
+          numero_whatsapp: numeroReal || '',
+          evolution_state: estado,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('tenant_id', tw.tenant_id);
+    } catch {}
 
     if (estado !== 'conectado') {
       try {
@@ -90,6 +94,8 @@ export async function GET(
         }
       } catch {}
     }
+
+    console.log(`[STATUS ENDPOINT RETURNING] estado=${estado}, instance=${tw.evolution_instance_name}, numeroReal=${numeroReal}`);
 
     return NextResponse.json({
       whatsapp: {

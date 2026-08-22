@@ -63,7 +63,8 @@ export async function despacharMensajeWhatsApp(
   textoCliente: string,
   clienteNombre: string,
   clienteTelefono: string,
-  contextoPrevio?: RouterContexto
+  contextoPrevio?: RouterContexto,
+  nombreNegocio: string = 'Santiago Papelería'
 ): Promise<ResultadoRouter> {
   const textoLimpio = textoCliente.trim();
   const inventario = await getInventarioAsync(tenantId);
@@ -236,7 +237,8 @@ export async function despacharMensajeWhatsApp(
         textoLimpio,
         semantica,
         contextoPrevio,
-        inventario
+        inventario,
+        nombreNegocio
       );
       break;
   }
@@ -544,7 +546,8 @@ async function handleConsultaProducto(
   textoCliente: string,
   semantica: IntencionSemantica,
   contextoPrevio: RouterContexto | undefined,
-  inventario: CandidatoProducto[]
+  inventario: CandidatoProducto[],
+  nombreNegocio: string = 'Santiago Papelería'
 ): Promise<ResultadoRouter> {
   const queryBusqueda =
     semantica.especificaciones_acumuladas ||
@@ -604,7 +607,8 @@ async function handleConsultaProducto(
     textoCliente,
     candidatosLimpios,
     alternativasLimpias,
-    hayCoincidenciaExacta
+    hayCoincidenciaExacta,
+    nombreNegocio
   );
 
   const listaOpciones = hayCoincidenciaExacta ? candidatosExactos : alternativas;
