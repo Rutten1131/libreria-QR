@@ -18,6 +18,7 @@ const NUMEROS_TEST_BOT = [
   '593963410409', // César 1
   '593983237491', // César 2
   '593983134672', // César 3 (+593 98 313 4672)
+  '593967491847', // César 4 (+593 96 749 1847)
 ];
 
 function esNumeroAutorizado(numeroRaw?: string): boolean {

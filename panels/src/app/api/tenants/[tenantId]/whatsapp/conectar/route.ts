@@ -45,7 +45,7 @@ export async function POST(
 
     const host = req.headers.get('host') || 'localhost:3000';
     const proto = req.headers.get('x-forwarded-proto') || 'https';
-    const webhookBase = process.env.WEBHOOK_BASE_URL || `${proto}://${host}`;
+    const webhookBase = process.env.WEBHOOK_BASE_URL || (host.includes('localhost') ? 'https://libreria-qr-brown.vercel.app' : `${proto}://${host}`);
 
     try {
       await configurarWebhook(instanceName, `${webhookBase}/api/whatsapp/webhook`);
