@@ -13,8 +13,22 @@ import { despacharMensajeWhatsApp, RouterContexto } from '@/server/router/botRou
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-// Números autorizados para pruebas libres del bot en WhatsApp (sin necesidad de escanear QR)
-const NUMEROS_TEST_BOT = ['593963410409', '593983237491'];
+// Números autorizados estrictamente para interactuar con el bot en WhatsApp
+const NUMEROS_TEST_BOT = [
+  '593963410409', // César 1
+  '593983237491', // César 2
+  '593983134672', // César 3 (+593 98 313 4672)
+];
+
+function esNumeroAutorizado(numeroRaw?: string): boolean {
+  if (!numeroRaw) return false;
+  const numDigitos = numeroRaw.replace(/\D/g, '');
+  const ultimos9 = numDigitos.slice(-9);
+  return NUMEROS_TEST_BOT.some((aut) => {
+    const aut9 = aut.replace(/\D/g, '').slice(-9);
+    return ultimos9 === aut9 || numDigitos.includes(aut) || aut.includes(numDigitos);
+  });
+}
 
 // Cache de deduplicación de mensajes procesados recientemente (evita duplicados si Evolution reintenta)
 const mensajesProcesados = new Map<string, number>();
@@ -51,6 +65,13 @@ export async function POST(req: NextRequest) {
     if (!datos || (!datos.texto && !datos.imagenBase64)) {
       console.log(`[Webhook] Evento ignorado: event=${event} datos=${datos ? 'parsed-but-empty' : 'null'}`);
       return NextResponse.json({ ok: true, ignored: true });
+    }
+
+    // FILTRO ESTRICTO DE NÚMEROS AUTORIZADOS:
+    // Solo responder si el remitente es uno de los números expresamente autorizados
+    if (!esNumeroAutorizado(datos.numero)) {
+      console.log(`[Webhook WhatsApp] Remitente no autorizado (${datos.numero}). Mensaje ignorado silenciosamente.`);
+      return NextResponse.json({ ok: true, ignored: true, reason: 'numero_no_autorizado' });
     }
 
     // Deduplicación por messageId

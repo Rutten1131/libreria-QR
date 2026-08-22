@@ -51,13 +51,13 @@ export const AGENDAS: CategoriaConocimiento = {
 
 export const UTILES_ESCOLARES: CategoriaConocimiento = {
   familia: 'escolar',
-  disparadores: ['estudiantes', 'estudiante', 'escolares', 'escolar', 'utiles', 'útiles', 'material escolar', 'materiales escolares', 'para estudiar', 'para estudiantes'],
+  disparadores: ['estudiantes', 'estudiante', 'escolares', 'escolar', 'utiles', 'útiles', 'material escolar', 'materiales escolares', 'productos escolares', 'producto escolar', 'utiles escolares', 'útiles escolares', 'para estudiar', 'para estudiantes'],
   dimensiones: [
     {
       nombre: 'tipo',
-      pregunta: 'Para estudiantes disponemos de *cuadernos*, *lápices*, *esferos*, *tijeras*, *gomas* y *carpetas*. ¿Qué te gustaría cotizar?',
-      opciones: ['cuadernos', 'lapices', 'esferos', 'tijeras', 'gomas', 'carpetas'],
+      pregunta: 'Disponemos de *cuadernos*, *útiles escolares*, *esferos*, *lápices*, *tijeras* y *gomas*. ¿Qué te gustaría cotizar?',
+      opciones: ['cuadernos', 'utiles', 'esferos', 'lapices', 'tijeras', 'gomas'],
     },
   ],
-  preguntaGenerica: 'Para estudiantes disponemos de cuadernos, lápices, esferos, tijeras, gomas y carpetas. ¿Qué necesitas cotizar?',
+  preguntaGenerica: 'Disponemos de cuadernos, útiles escolares, esferos, lápices, tijeras y gomas. ¿Qué necesitas cotizar?',
 };

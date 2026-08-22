@@ -112,8 +112,14 @@ export async function despacharMensajeWhatsApp(
     semantica.especificaciones_acumuladas = contextoPrevio.queryAcumulada;
   }
 
-  // R2: Detectar "No, mejor N" / "solo N" / "mejor ponme N" → cambio de cantidad sobre producto activo en contexto
+  // R1.8: Consulta de total o resumen de carrito activo ("¿cuánto llevo?", "¿cuánto es en total?")
   const textoNormQ = textoMin.replace(/[¿?¡!]/g, '').trim();
+  const pideTotal = /^(cu[aá]nto llevo|cu[aá]nto va|cu[aá]nto es (?:en total|el total)|cu[aá]l es el total|total|mi pedido|resumen|cu[aá]nto ser[íi]a en total|total pedido)/i.test(textoNormQ);
+  if (pideTotal && contextoPrevio?.carrito?.length) {
+    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio.carrito, contextoPrevio, textoCliente);
+  }
+
+  // R2: Detectar "No, mejor N" / "solo N" / "mejor ponme N" → cambio de cantidad sobre producto activo en contexto
   const matchCambioQty = textoNormQ.match(/^(?:no,?\s*)?(?:mejor|solo|son|dame|quiero|ponme|cambiar?|cambi[aá]me?)\s+(\d+)$|^(\d+)\s*(?:nomas?|no mas?|mejor)$/i);
   const matchCantNum = textoNormQ.match(/^\d+$/);
   if (
