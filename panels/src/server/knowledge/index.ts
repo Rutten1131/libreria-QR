@@ -16,7 +16,7 @@ import { PINTURAS_COLOR, MARCADORES, CRAYONES, TEMPERAS, PINCELES } from './pint
 import { CARTULINAS, PAPELES_Y_RESMAS } from './papeles';
 import { GOMAS_Y_ADHESIVOS, TIJERAS, FOMIX, PLASTILINA } from './manualidades';
 import { CINTAS_ADHESIVAS, ACCESORIOS_OFICINA } from './oficina';
-import { PALILLOS, AGENDAS } from './varios';
+import { PALILLOS, AGENDAS, UTILES_ESCOLARES } from './varios';
 
 export const TODAS_LAS_CATEGORIAS: CategoriaConocimiento[] = [
   CUADERNOS,
@@ -42,6 +42,7 @@ export const TODAS_LAS_CATEGORIAS: CategoriaConocimiento[] = [
   ACCESORIOS_OFICINA,
   PALILLOS,
   AGENDAS,
+  UTILES_ESCOLARES,
 ];
 
 /**

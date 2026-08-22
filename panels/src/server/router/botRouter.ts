@@ -112,16 +112,16 @@ export async function despacharMensajeWhatsApp(
     semantica.especificaciones_acumuladas = contextoPrevio.queryAcumulada;
   }
 
-  // R2: Detectar "Mejor N" / "solo N" / "mejor ponme N" → cambio de cantidad sobre producto activo en contexto
+  // R2: Detectar "No, mejor N" / "solo N" / "mejor ponme N" → cambio de cantidad sobre producto activo en contexto
   const textoNormQ = textoMin.replace(/[¿?¡!]/g, '').trim();
-  const matchCambioQty = textoNormQ.match(/^(mejor|solo|son|dame|quiero|ponme|cambiar?|cambi[aá]me?)\s+(\d+)$|^(\d+)\s*(nomas?|no mas?|mejor)$/i);
+  const matchCambioQty = textoNormQ.match(/^(?:no,?\s*)?(?:mejor|solo|son|dame|quiero|ponme|cambiar?|cambi[aá]me?)\s+(\d+)$|^(\d+)\s*(?:nomas?|no mas?|mejor)$/i);
   const matchCantNum = textoNormQ.match(/^\d+$/);
   if (
     contextoPrevio?.carrito?.length &&
     (matchCambioQty || matchCantNum) &&
     semantica.intencion !== 'LISTA_COMPUESTA'
   ) {
-    const nuevaCantidad = parseInt(matchCambioQty?.[2] || matchCambioQty?.[3] || textoNormQ, 10);
+    const nuevaCantidad = parseInt(matchCambioQty?.[1] || matchCambioQty?.[2] || textoNormQ, 10);
     if (!isNaN(nuevaCantidad) && nuevaCantidad > 0) {
       // Rehacer cotización con la cantidad cambiada
       const carritoActual = contextoPrevio.carrito;
@@ -133,6 +133,26 @@ export async function despacharMensajeWhatsApp(
         ];
         return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
       }
+    }
+  }
+
+  // R2.5: Si hay opciones activas en pantalla y el cliente dice "Bueno dame 2 tijeras", "dame 2 cuadernos"
+  const matchDirectoQty = textoNormQ.match(/^(?:bueno\s+)?(?:dame|ponme|quiero|llevo|agrega)\s+(\d+)\s+([a-zñáéíóú]+)/i);
+  if (matchDirectoQty && opcionesActivas.length > 0) {
+    const cantDirecta = parseInt(matchDirectoQty[1], 10);
+    const prodMencionado = norm(matchDirectoQty[2]);
+    const opcionElegida = opcionesActivas.find(o => norm(o.nombre).includes(prodMencionado.replace(/(es|s)$/, ''))) || opcionesActivas[0];
+    if (opcionElegida && !isNaN(cantDirecta) && cantDirecta > 0) {
+      const nuevoCarrito = [
+        ...(contextoPrevio?.carrito || []),
+        {
+          productoId: opcionElegida.id,
+          nombre: opcionElegida.nombre,
+          precioUnitario: opcionElegida.precio,
+          cantidad: cantDirecta
+        }
+      ];
+      return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
     }
   }
 

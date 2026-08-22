@@ -174,6 +174,40 @@ export function filtrarCandidatosPorCategoria(
     if (puros.length > 0) candidatos = puros;
   }
 
+  // Si el texto incluye "resma" o "bond", priorizar resmas y papel bond y no forros ni sobres
+  if (textoNorm.includes('resma') || textoNorm.includes('bond')) {
+    const resmas = candidatos.filter((p) => {
+      const pn = norm(p.nombre);
+      return (pn.includes('resma') || pn.includes('bond')) && !pn.includes('forro');
+    });
+    if (resmas.length > 0) candidatos = resmas;
+  }
+
+  // 5. Filtro de términos calificativos específicos: si el usuario incluyó palabras muy específicas
+  // que no existen en el catálogo (ej. "propulsora", "cohete", "turbo", "voladora", "bluetooth", "inteligente"),
+  // no devolver productos genéricos que solo coincidan con la palabra raíz.
+  const triggersNorm = (categoria ? [categoria.familia, ...categoria.disparadores] : []).map(t => norm(t));
+  const palabrasClave = textoNorm
+    .split(/\s+/)
+    .filter(
+      (w) =>
+        w.length >= 5 &&
+        !['necesito', 'quiero', 'tienen', 'venden', 'cuanto', 'precio', 'ayuda', 'cotizar', 'busco', 'tipo', 'clase', 'alguna'].includes(w) &&
+        !triggersNorm.some(t => t.includes(w) || w.includes(t))
+    );
+  if (palabrasClave.length >= 2) {
+    const palabrasInexistentes = palabrasClave.filter((pal) => {
+      const palSingular = pal.replace(/(es|s)$/, '');
+      return !candidatos.some((p) => {
+        const pn = norm(p.nombre);
+        return pn.includes(pal) || (palSingular.length >= 4 && pn.includes(palSingular));
+      });
+    });
+    if (palabrasInexistentes.length >= 2) {
+      candidatos = [];
+    }
+  }
+
   return candidatos;
 }
 

@@ -1,5 +1,19 @@
-// Adapter de Inteligencia Artificial para LibreríaQR (Vision OCR + Parsing)
-// Proveedores: Google Gemini (Vision OCR <2s) + Groq (Parsing ultra-rápido) + NVIDIA NIM (Fallback)
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Asegurar carga de variables de entorno si aún no están en process.env
+try {
+  const envPath = path.resolve(process.cwd(), '.env.local');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    envContent.split('\n').forEach((line) => {
+      const [k, ...v] = line.split('=');
+      if (k && v && !process.env[k.trim()]) {
+        process.env[k.trim()] = v.join('=').trim().replace(/^["']|["']$/g, '');
+      }
+    });
+  }
+} catch (e) {}
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
@@ -88,18 +102,21 @@ export interface LLMResult {
 }
 
 let geminiKeyIndex = 0;
+let groqKeyIndex = 0;
 function getApiKey(proveedor: ProveedorIA): string {
   if (proveedor === 'gemini') {
-    const keys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP].filter(Boolean) as string[];
+    const keys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP, process.env.GEMINI_API_KEY_3].filter(Boolean) as string[];
     if (keys.length === 0) throw new Error('GEMINI_API_KEY no esta en .env');
     const selected = keys[geminiKeyIndex % keys.length];
     geminiKeyIndex = (geminiKeyIndex + 1) % keys.length;
     return selected;
   }
   if (proveedor === 'groq') {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) throw new Error('GROQ_API_KEY no esta en .env');
-    return key;
+    const keys = [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_BACKUP, process.env.GROQ_API_KEY_3].filter(Boolean) as string[];
+    if (keys.length === 0) throw new Error('GROQ_API_KEY no esta en .env');
+    const selected = keys[groqKeyIndex % keys.length];
+    groqKeyIndex = (groqKeyIndex + 1) % keys.length;
+    return selected;
   }
   const key = process.env.NVIDIA_API_KEY;
   if (!key) throw new Error('NVIDIA_API_KEY no esta en .env');
@@ -484,7 +501,7 @@ ${opcionesTexto || '(Ninguna — no se han mostrado opciones aún)'}
 
 Clasifica la intención del último mensaje. JSON:`;
 
-  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP].filter(Boolean) as string[];
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP, process.env.GEMINI_API_KEY_3].filter(Boolean) as string[];
 
   for (const apiKey of geminiKeys) {
     try {
@@ -522,36 +539,40 @@ Clasifica la intención del último mensaje. JSON:`;
     }
   }
 
-  // Fallback con Groq ultra-rápido si Gemini falló o rate-limitó
-  try {
-    const groqKey = process.env.GROQ_API_KEY;
-    if (groqKey) {
-      const resGroq = await fetch(GROQ_API_URL, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${groqKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'openai/gpt-oss-120b',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          response_format: { type: 'json_object' },
-          temperature: 0.05,
-        })
-      });
-      const dataGroq = await resGroq.json();
-      const content = dataGroq.choices?.[0]?.message?.content;
-      if (content) {
-        const result = JSON.parse(content) as IntencionSemantica;
-        console.log(`[iaAdapter Groq Fallback Semántica] Intención: ${result.intencion}, Prod: ${result.producto_principal}`);
-        return result;
+  // Fallback con Groq ultra-rápido si Gemini falló o rate-limitó (cascada de llaves + modelos)
+  const groqKeys = [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_BACKUP, process.env.GROQ_API_KEY_3].filter(Boolean) as string[];
+  const groqModelos = ['qwen/qwen3.6-27b', 'openai/gpt-oss-20b', 'openai/gpt-oss-120b'];
+
+  for (const groqKey of groqKeys) {
+    for (const gMod of groqModelos) {
+      try {
+        const resGroq = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: gMod,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.05,
+          }),
+        });
+        const dataGroq = await resGroq.json();
+        const content = dataGroq.choices?.[0]?.message?.content;
+        if (content) {
+          const result = JSON.parse(content) as IntencionSemantica;
+          console.log(`[iaAdapter Groq Fallback Semántica (${gMod})] Intención: ${result.intencion}, Prod: ${result.producto_principal}`);
+          return result;
+        }
+      } catch (err: any) {
+        console.warn(`[iaAdapter] Fallback Groq ${gMod} semántica error:`, err?.message);
       }
     }
-  } catch (err: any) {
-    console.warn('[iaAdapter] Fallback Groq semántica error:', err?.message);
   }
 
   // Fallback seguro
@@ -628,6 +649,10 @@ REGLAS DE ORO DE VERACIDAD Y ATENCIÓN:
    - NUNCA digas "¡Hola!" ni saludes de nuevo si ya hay historial de conversación previo.
    - Sé directo, natural y transparente.
 
+6. MENCIONES EXPLÍCITAS Y CATEGORÍAS:
+   - Al responder por un producto o categoría (ej. cuadernos, esferos, tijeras, papelería), menciona SIEMPRE de forma explícita el nombre del producto en tu respuesta (ej. *"Con gusto te ayudo con los cuadernos..."*).
+   - Si el cliente pregunta qué tienes para *oficina* o para *estudiantes / escolares*, menciona de forma destacada los productos esenciales de esas áreas (resmas de papel bond, esferos, carpetas, cuadernos, lápices, tijeras y gomas), además de los ítems en stock.
+
 FORMATO DE SALIDA ESTRICTO EN JSON:
 {
   "accion": "RESPONDER_CHAT" | "COTIZAR_PEDIDO",
@@ -653,7 +678,7 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
     parts: [{ text: ultimoMensajeCliente }],
   });
 
-  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP].filter(Boolean) as string[];
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_BACKUP, process.env.GEMINI_API_KEY_3].filter(Boolean) as string[];
 
   for (const apiKey of geminiKeys) {
     try {
@@ -688,36 +713,40 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
     }
   }
 
-  // Fallback con Groq ultra-rápido para ventas
-  try {
-    const groqKey = process.env.GROQ_API_KEY;
-    if (groqKey) {
-      const groqMessages = [
-        { role: 'system', content: systemPrompt },
-        ...historial.slice(-4).map((m) => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.texto })),
-        { role: 'user', content: ultimoMensajeCliente },
-      ];
-      const resGroq = await fetch(GROQ_API_URL, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${groqKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'openai/gpt-oss-120b',
-          messages: groqMessages,
-          response_format: { type: 'json_object' },
-          temperature: 0.1,
-        }),
-      });
-      const dataGroq = await resGroq.json();
-      const content = dataGroq.choices?.[0]?.message?.content;
-      if (content) {
-        return JSON.parse(content) as RespuestaAgenteVentas;
+  // Fallback con Groq ultra-rápido para ventas (cascada de llaves + modelos)
+  const groqKeys = [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_BACKUP, process.env.GROQ_API_KEY_3].filter(Boolean) as string[];
+  const groqModelos = ['qwen/qwen3.6-27b', 'openai/gpt-oss-20b', 'openai/gpt-oss-120b'];
+  const groqMessages = [
+    { role: 'system', content: systemPrompt },
+    ...historial.slice(-4).map((m) => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.texto })),
+    { role: 'user', content: ultimoMensajeCliente },
+  ];
+
+  for (const groqKey of groqKeys) {
+    for (const gMod of groqModelos) {
+      try {
+        const resGroq = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: gMod,
+            messages: groqMessages,
+            response_format: { type: 'json_object' },
+            temperature: 0.1,
+          }),
+        });
+        const dataGroq = await resGroq.json();
+        const content = dataGroq.choices?.[0]?.message?.content;
+        if (content) {
+          return JSON.parse(content) as RespuestaAgenteVentas;
+        }
+      } catch (err: any) {
+        console.warn(`[iaAdapter] Fallback Groq ${gMod} ventas error:`, err?.message);
       }
     }
-  } catch (err: any) {
-    console.warn('[iaAdapter] Fallback Groq ventas error:', err?.message);
   }
 
   const fallbackOpciones = productosEnStock

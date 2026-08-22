@@ -48,3 +48,16 @@ export const AGENDAS: CategoriaConocimiento = {
   ],
   preguntaGenerica: 'Para la *agenda*, ¿buscas agenda escolar o agenda anillada de notas? ¿A cuadros o a líneas?',
 };
+
+export const UTILES_ESCOLARES: CategoriaConocimiento = {
+  familia: 'escolar',
+  disparadores: ['estudiantes', 'estudiante', 'escolares', 'escolar', 'utiles', 'útiles', 'material escolar', 'materiales escolares', 'para estudiar', 'para estudiantes'],
+  dimensiones: [
+    {
+      nombre: 'tipo',
+      pregunta: 'Para estudiantes disponemos de *cuadernos*, *lápices*, *esferos*, *tijeras*, *gomas* y *carpetas*. ¿Qué te gustaría cotizar?',
+      opciones: ['cuadernos', 'lapices', 'esferos', 'tijeras', 'gomas', 'carpetas'],
+    },
+  ],
+  preguntaGenerica: 'Para estudiantes disponemos de cuadernos, lápices, esferos, tijeras, gomas y carpetas. ¿Qué necesitas cotizar?',
+};

@@ -24,13 +24,13 @@ export const CINTAS_ADHESIVAS: CategoriaConocimiento = {
 
 export const ACCESORIOS_OFICINA: CategoriaConocimiento = {
   familia: 'oficina',
-  disparadores: ['clips', 'clip', 'grapas', 'grapadora', 'perforadora', 'chinchetas', 'oficina', 'para oficina', 'material de oficina'],
+  disparadores: ['clips', 'clip', 'grapas', 'grapadora', 'perforadora', 'chinchetas', 'oficina', 'para oficina', 'material de oficina', 'articulos de oficina', 'artículos de oficina', 'suministros de oficina', 'cosas de oficina'],
   dimensiones: [
     {
       nombre: 'tipo',
-      pregunta: '¿Buscas *clips mariposa*, *clips estándar* o *caja de grapas*?',
-      opciones: ['mariposa', 'clip estándar', 'grapas 26/6', 'grapas', 'grapadora'],
+      pregunta: 'Para oficina disponemos de *resmas de papel bond*, *esferos*, *carpetas*, *tijeras*, *clips* y *gomas*. ¿Qué te gustaría cotizar?',
+      opciones: ['resma', 'papel bond', 'esferos', 'carpetas', 'tijeras', 'clips', 'gomas'],
     },
   ],
-  preguntaGenerica: '¿Buscas caja de clips (mariposa o estándar) o caja de grapas?',
+  preguntaGenerica: 'Para oficina disponemos de resmas de papel bond, esferos, carpetas, tijeras y clips. ¿Qué necesitas cotizar?',
 };
