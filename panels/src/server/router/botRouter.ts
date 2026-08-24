@@ -35,6 +35,11 @@ export interface ItemCarrito {
   cantidad: number;
 }
 
+export interface ItemPendiente {
+  itemRaw: string;
+  cantidad: number;
+}
+
 export interface RouterContexto {
   historialMensajes?: MensajeHistorial[];
   queryAcumulada?: string;
@@ -45,6 +50,8 @@ export interface RouterContexto {
   total?: number;
   itemsCount?: number;
   carrito?: ItemCarrito[];
+  colaPendientes?: ItemPendiente[];
+  itemEnProceso?: ItemPendiente | null;
 }
 
 export interface ResultadoRouter {
@@ -201,7 +208,7 @@ export async function despacharMensajeWhatsApp(
   // 3. Despacho modular a handlers según la intención
   switch (semantica.intencion) {
     case 'REINICIAR':
-      resultado = handleReset();
+      resultado = handleReset(nombreNegocio);
       break;
 
     case 'SALUDO':
@@ -213,7 +220,7 @@ export async function despacharMensajeWhatsApp(
       break;
 
     case 'LISTA_COMPUESTA':
-      resultado = await handleListaCompuesta(tenantId, clienteNombre, clienteTelefono, textoLimpio, semantica, contextoPrevio);
+      resultado = await handleListaCompuesta(tenantId, clienteNombre, clienteTelefono, textoLimpio, semantica, contextoPrevio, inventario, nombreNegocio);
       break;
 
     case 'SELECCION_OPCION':
@@ -224,7 +231,8 @@ export async function despacharMensajeWhatsApp(
         textoLimpio,
         semantica,
         contextoPrevio,
-        inventario
+        inventario,
+        nombreNegocio
       );
       break;
 
@@ -270,16 +278,18 @@ function handleSaludo(nombreNegocio: string = 'Santiago Papelería'): ResultadoR
 }
 
 // ─── HANDLER 1: RESET ──────────────────────────────────────────────────
-function handleReset(): ResultadoRouter {
+function handleReset(nombreNegocio: string = 'Santiago Papelería'): ResultadoRouter {
   return {
     tipo: 'reset',
-    textoRespuesta: `🔄 *Conversación reiniciada desde cero.* 📚\n\n¿En qué te podemos ayudar? Escribe el material que buscas o envíanos tu lista escolar en foto/PDF.`,
+    textoRespuesta: `🔄 *Conversación reiniciada desde cero.* 📚\n\nBienvenido/a a *${nombreNegocio}*. ¿En qué te podemos ayudar? Escribe el material que buscas o envíanos tu lista escolar en foto/PDF.`,
     nuevoContexto: {
       historialMensajes: [],
       queryAcumulada: undefined,
       opcionesPresentadas: [],
       productoSeleccionado: null,
       cantidad: 1,
+      colaPendientes: [],
+      itemEnProceso: null,
     },
   };
 }
@@ -405,40 +415,130 @@ async function generarRespuestaCotizacion(
   };
 }
 
-// ─── HANDLER 3: LISTA COMPUESTA (Múltiples útiles) ─────────────────────
+// ─── HANDLER 3: LISTA COMPUESTA (Múltiples útiles — Consultivo Paso a Paso) ─
 async function handleListaCompuesta(
   tenantId: string,
   clienteNombre: string,
   clienteTelefono: string,
   textoCliente: string,
   semantica: IntencionSemantica,
-  contextoPrevio?: RouterContexto
+  contextoPrevio: RouterContexto | undefined,
+  inventario: CandidatoProducto[],
+  nombreNegocio: string = 'Santiago Papelería'
 ): Promise<ResultadoRouter> {
   const items = semantica.items_lista || [];
-  const cotizacion = await cotizar(tenantId, items);
-
-  const itemsNuevos: ItemCarrito[] = cotizacion.items.map((i) => ({
-    productoId: i.productoId,
-    nombre: i.nombre,
-    precioUnitario: i.precioUnitario,
-    cantidad: i.cantidad,
-  }));
-
-  // Si ya había un carrito y los items semánticos eran adicionales, combinarlos
-  let carritoFinal = itemsNuevos;
-  if (contextoPrevio?.carrito && contextoPrevio.carrito.length > 0) {
-    // Si la lista de la IA ya contiene los viejos, usarla; si no, fusionar
-    const idsNuevos = new Set(itemsNuevos.map((i) => i.productoId));
-    const viejosQueNoEstan = contextoPrevio.carrito.filter((v) => !idsNuevos.has(v.productoId));
-    if (viejosQueNoEstan.length > 0 && itemsNuevos.length > 0) {
-      carritoFinal = [
-        ...contextoPrevio.carrito,
-        ...itemsNuevos.filter((n) => !contextoPrevio.carrito!.some((c) => c.productoId === n.productoId)),
-      ];
-    }
+  if (items.length === 0) {
+    return handleSaludo(nombreNegocio);
   }
 
-  return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, carritoFinal, contextoPrevio, textoCliente);
+  // Encolar todos los ítems; el primero se procesa ahora, el resto queda pendiente
+  const [primero, ...resto] = items;
+  const colaPendientes: ItemPendiente[] = resto.map((i) => ({ itemRaw: i.nombre, cantidad: i.cantidad }));
+  const itemEnProceso: ItemPendiente = { itemRaw: primero.nombre, cantidad: primero.cantidad };
+
+  // Construir mensaje introductorio + consultar primer ítem
+  const listaTexto = items.map((i, idx) => `${idx + 1}. ${i.cantidad}x ${i.nombre}`).join('\n');
+  const introMsg = `📋 ¡Perfecto! Vamos a armar tu pedido paso a paso:\n${listaTexto}\n\nEmpecemos con *${primero.nombre}* (${primero.cantidad} unidades):`;
+
+  // Procesar el primer ítem a través del flujo consultivo
+  const semanticaPrimero: IntencionSemantica = {
+    intencion: 'CONSULTA_PRODUCTO',
+    producto_principal: primero.nombre,
+    especificaciones_acumuladas: primero.nombre,
+    cantidad_comprar: primero.cantidad,
+    opcion_elegida_index: null,
+  };
+
+  const resPrimero = await handleConsultaProducto(
+    tenantId, clienteNombre, clienteTelefono,
+    primero.nombre, semanticaPrimero, contextoPrevio, inventario, nombreNegocio
+  );
+
+  // Combinar mensaje introductorio con la pregunta consultiva del primer ítem
+  return {
+    ...resPrimero,
+    textoRespuesta: `${introMsg}\n\n${resPrimero.textoRespuesta}`,
+    nuevoContexto: {
+      ...resPrimero.nuevoContexto,
+      colaPendientes,
+      itemEnProceso,
+      carrito: contextoPrevio?.carrito || [],
+    },
+  };
+}
+
+// ─── PROCESAR SIGUIENTE ITEM DE LA COLA O FINALIZAR COTIZACIÓN ─────────
+async function procesarSiguienteOFinalizar(
+  tenantId: string,
+  clienteNombre: string,
+  clienteTelefono: string,
+  carritoActualizado: ItemCarrito[],
+  contextoPrevio: RouterContexto | undefined,
+  inventario: CandidatoProducto[],
+  nombreNegocio: string = 'Santiago Papelería',
+  ultimoItemAgregadoNombre?: string,
+  ultimoItemCantidad?: number
+): Promise<ResultadoRouter> {
+  const cola = contextoPrevio?.colaPendientes || [];
+
+  // Si aún quedan ítems en la cola por resolver:
+  if (cola.length > 0) {
+    const [siguiente, ...restoCola] = cola;
+    const semanticaSig: IntencionSemantica = {
+      intencion: 'CONSULTA_PRODUCTO',
+      producto_principal: siguiente.itemRaw,
+      especificaciones_acumuladas: siguiente.itemRaw,
+      cantidad_comprar: siguiente.cantidad,
+      opcion_elegida_index: null,
+    };
+
+    const resSiguiente = await handleConsultaProducto(
+      tenantId,
+      clienteNombre,
+      clienteTelefono,
+      siguiente.itemRaw,
+      semanticaSig,
+      {
+        ...contextoPrevio,
+        carrito: carritoActualizado,
+        colaPendientes: restoCola,
+        itemEnProceso: siguiente,
+        queryAcumulada: undefined,
+        opcionesPresentadas: [],
+      },
+      inventario,
+      nombreNegocio
+    );
+
+    const checkNote = ultimoItemAgregadoNombre
+      ? `✅ Agregado: *${limpiarNombreERP(ultimoItemAgregadoNombre)}* (${ultimoItemCantidad || 1} u.) al pedido.\n\nAhora vamos con *${siguiente.itemRaw}* (${siguiente.cantidad} unidades):\n\n`
+      : '';
+
+    return {
+      ...resSiguiente,
+      textoRespuesta: `${checkNote}${resSiguiente.textoRespuesta}`,
+      nuevoContexto: {
+        ...resSiguiente.nuevoContexto,
+        carrito: carritoActualizado,
+        colaPendientes: restoCola,
+        itemEnProceso: siguiente,
+      },
+    };
+  }
+
+  // Si la cola está vacía, emitir la cotización / proforma final con todo el carrito
+  return generarRespuestaCotizacion(
+    tenantId,
+    clienteNombre,
+    clienteTelefono,
+    carritoActualizado,
+    {
+      ...contextoPrevio,
+      colaPendientes: [],
+      itemEnProceso: null,
+    },
+    ultimoItemAgregadoNombre || ''
+  );
 }
 
 // ─── HANDLER 4: SELECCIÓN O CORRECCIÓN DE OPCIÓN ───────────────────────
@@ -449,7 +549,8 @@ async function handleSeleccionOpcion(
   textoCliente: string,
   semantica: IntencionSemantica,
   contextoPrevio: RouterContexto | undefined,
-  inventario: CandidatoProducto[]
+  inventario: CandidatoProducto[],
+  nombreNegocio: string = 'Santiago Papelería'
 ): Promise<ResultadoRouter> {
   const opciones = contextoPrevio?.opcionesPresentadas || [];
   let seleccion: CandidatoProducto | null = null;
@@ -464,9 +565,10 @@ async function handleSeleccionOpcion(
     seleccion = resolverSeleccionOpcion(textoCliente, opciones);
   }
 
-  const cantidad = semantica.cantidad_comprar || 1;
+  const cantidad = semantica.cantidad_comprar || contextoPrevio?.itemEnProceso?.cantidad || contextoPrevio?.cantidad || 1;
   const textoMin = textoCliente.toLowerCase().trim();
   const esAdicion =
+    Boolean(contextoPrevio?.colaPendientes?.length) ||
     textoMin.startsWith('y ') ||
     textoMin.startsWith('también ') ||
     textoMin.startsWith('tambien ') ||
@@ -500,12 +602,22 @@ async function handleSeleccionOpcion(
           productoId: seleccion.id,
           nombre: seleccion.nombre,
           precioUnitario: seleccion.precio,
-          cantidad: semantica.cantidad_comprar || contextoPrevio?.cantidad || 1,
+          cantidad,
         },
       ];
     }
 
-    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
+    return procesarSiguienteOFinalizar(
+      tenantId,
+      clienteNombre,
+      clienteTelefono,
+      nuevoCarrito,
+      contextoPrevio,
+      inventario,
+      nombreNegocio,
+      seleccion.nombre,
+      cantidad
+    );
   }
 
   // 3. Si no hay selección nueva pero el usuario está corrigiendo cantidad (ej. "pero una docena")
@@ -523,7 +635,17 @@ async function handleSeleccionOpcion(
         cantidad: semantica.cantidad_comprar || cantidad,
       },
     ];
-    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, nuevoCarrito, contextoPrevio, textoCliente);
+    return procesarSiguienteOFinalizar(
+      tenantId,
+      clienteNombre,
+      clienteTelefono,
+      nuevoCarrito,
+      contextoPrevio,
+      inventario,
+      nombreNegocio,
+      prod.nombre,
+      semantica.cantidad_comprar || cantidad
+    );
   }
 
   // Si no se encontró la opción, derivar a consulta general
@@ -534,7 +656,8 @@ async function handleSeleccionOpcion(
     textoCliente,
     semantica,
     contextoPrevio,
-    inventario
+    inventario,
+    nombreNegocio
   );
 }
 
@@ -554,7 +677,7 @@ async function handleConsultaProducto(
     semantica.producto_principal ||
     (contextoPrevio?.queryAcumulada ? `${contextoPrevio.queryAcumulada} ${textoCliente}` : textoCliente);
 
-  const cantidad = semantica.cantidad_comprar || contextoPrevio?.cantidad || 1;
+  const cantidad = semantica.cantidad_comprar || contextoPrevio?.itemEnProceso?.cantidad || contextoPrevio?.cantidad || 1;
   const categoria = buscarCategoriaParaItem(queryBusqueda);
   const candidatosExactosRaw = filtrarCandidatosPorCategoria(categoria, queryBusqueda, inventario);
   const hayCoincidenciaExacta = candidatosExactosRaw.length > 0;
@@ -628,10 +751,22 @@ async function handleConsultaProducto(
       cantidad: cantFinal,
     };
 
-    return generarRespuestaCotizacion(tenantId, clienteNombre, clienteTelefono, [itemCarrito], {
-      ...contextoPrevio,
-      opcionesPresentadas: listaOpciones,
-    });
+    const carritoActual = contextoPrevio?.carrito ? [...contextoPrevio.carrito, itemCarrito] : [itemCarrito];
+
+    return procesarSiguienteOFinalizar(
+      tenantId,
+      clienteNombre,
+      clienteTelefono,
+      carritoActual,
+      {
+        ...contextoPrevio,
+        opcionesPresentadas: listaOpciones,
+      },
+      inventario,
+      nombreNegocio,
+      itemElegido.nombre,
+      cantFinal
+    );
   }
 
   // Formatear mensaje final garantizando que nunca sea nulo o vacío
@@ -659,6 +794,8 @@ async function handleConsultaProducto(
       opcionesPresentadas: listaOpciones,
       productoSeleccionado: null,
       carrito: contextoPrevio?.carrito,
+      colaPendientes: contextoPrevio?.colaPendientes,
+      itemEnProceso: contextoPrevio?.itemEnProceso,
     },
   };
 }
