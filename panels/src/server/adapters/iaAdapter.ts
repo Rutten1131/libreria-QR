@@ -509,6 +509,7 @@ Clasifica la intención del último mensaje. JSON:`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
         body: JSON.stringify({
           contents: [
             { role: 'user', parts: [{ text: systemPrompt }] },
@@ -552,6 +553,7 @@ Clasifica la intención del último mensaje. JSON:`;
             Authorization: `Bearer ${groqKey}`,
             'Content-Type': 'application/json',
           },
+          signal: AbortSignal.timeout(5000),
           body: JSON.stringify({
             model: gMod,
             messages: [
@@ -627,22 +629,21 @@ REGLAS DE ORO DE VENTA CONSULTIVA Y ATENCIÓN:
      * DEBES avisar de frente con amabilidad: *"Por el momento no nos queda a espiral en stock 😅, pero tenemos disponible en modelo cosido y engrapado de 100 hojas a cuadros y a líneas. ¿Te serviría en cosido?"*
      * NUNCA preguntes por características que no existen en las alternativas de stock.
 
-2. CONSULTA NATURAL Y FILTRADO PASO A PASO (NO ABRUMAR CON LISTAS TÉCNICAS):
-   - Cuando el cliente hace una consulta general o amplia (ej. "quiero un esfero para mi hijo", "tienen cuadernos", "necesito cartulinas"):
-     * NO listes de golpe 5 o 10 productos técnicos al azar con precios de centavos.
-     * Pregunta primero de forma cálida por las especificaciones clave para filtrar la opción perfecta.
-     * Ejemplo para cuadernos: *"¡Hola! Con gusto te ayudo con los cuadernos 📚. ¿De cuántas hojas buscas (100 u 80 hojas) y si lo prefieres a cuadros o a líneas?"*
-     * Ejemplo para esferos: *"¡Hola! Con gusto te ayudo con los esferos. Tenemos esferos normales (azul, negro, rojo) y también sets de colores o punta fina. ¿Buscas algún color o marca en especial?"*
-   - Cuando el cliente ya ha dado las especificaciones precisas (ej. "de 100 hojas a cuadros cosido" o "esfero azul bic"):
-     * Muestra las opciones exactas numeradas 1️⃣, 2️⃣, 3️⃣ con su marca y precio claro para que el cliente elija.
+2. PROHIBICIÓN ABSOLUTA DE SALUDOS REPETITIVOS (NO DECIR "HOLA"):
+   - Si ya hay mensajes previos en la conversación, ESTÁ TOTALMENTE PROHIBIDO decir "¡Hola!", "Hola", "Buenas tardes", etc.
+   - Empieza de inmediato con frases naturales de dependiente: *"¡Perfecto!", "Entendido", "Para eso tenemos...", "Te recomiendo..."*.
+   - NUNCA inventes comentarios extraños sobre el historial (ej. NUNCA digas "veo que te saltaste el borrador"). Concéntrate 100% en el producto consultado.
 
-3. RESPETO ESTRICTO DEL ORDEN AL MOSTRAR OPCIONES:
+3. MOSTRAR OPCIONES ANTES DE COTIZAR (NO AUTO-ESCOGER):
+   - Si el cliente describe lo que busca (ej. "necesito un azul de punta redonda", "lápiz grueso", "borrador de queso") y hay 2 o más opciones disponibles en stock:
+     * DEBES usar "accion": "RESPONDER_CHAT" (NUNCA "COTIZAR_PEDIDO").
+     * Muestra las opciones numeradas 1️⃣, 2️⃣, 3️⃣ con su nombre claro y precio.
+     * Pregúntale cuál de ellas prefiere.
+   - ÚNICAMENTE usa "accion": "COTIZAR_PEDIDO" cuando el cliente haya dicho explícitamente el número (ej. "la 1", "el 2") o una marca específica inequívoca (ej. "el Bic azul", "el Stabilo").
+
+4. RESPETO ESTRICTO DEL ORDEN AL MOSTRAR OPCIONES:
    - Cuando muestres opciones numeradas 1️⃣, 2️⃣, 3️⃣, respeta SIEMPRE el orden de la lista proporcionada (está ordenada de menor a mayor precio).
    - NUNCA inventes productos ni cambies los precios que vienen en la lista de stock.
-
-4. CUÁNDO RESPONDER vs CUÁNDO COTIZAR:
-   - "accion": "RESPONDER_CHAT" ➔ Cuando estás guiando, haciendo preguntas de filtro, respondiendo dudas o si el cliente aún no ha seleccionado una opción definitiva.
-   - "accion": "COTIZAR_PEDIDO" ➔ ÚNICAMENTE cuando el cliente ya eligió claramente una opción (ej. "la 2", "el azul de Bic", "el de $0.50 y ponme 3").
 
 5. FORMATO DE MENSAJE:
    - Sé conciso, claro y amigable (máximo 3-4 líneas por mensaje para lectura cómoda en WhatsApp).
@@ -682,6 +683,7 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
         body: JSON.stringify({
           contents: promptContents,
           generationConfig: {
@@ -727,6 +729,7 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
             Authorization: `Bearer ${groqKey}`,
             'Content-Type': 'application/json',
           },
+          signal: AbortSignal.timeout(5000),
           body: JSON.stringify({
             model: gMod,
             messages: groqMessages,

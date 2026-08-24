@@ -253,7 +253,7 @@ export function resolverSeleccionOpcion(
   // 3. Coincidencia por marca, personaje o palabra clave ("stitch", "avengers", "mandalorian", "andaluz", "escribe", "norma", "stanford")
   for (const opc of opcionesPresentadas) {
     const opcNorm = norm(opc.nombre);
-    const palabrasOpc = opcNorm.split(' ').filter((w) => w.length >= 4 && !['cuaderno', 'universitario', 'hojas', 'cosido', 'espiral', 'cuadros', 'lineas', 'academico', 'lancer'].includes(w));
+    const palabrasOpc = opcNorm.split(' ').filter((w) => w.length >= 4 && !['cuaderno', 'universitario', 'hojas', 'cosido', 'espiral', 'cuadros', 'lineas', 'academico', 'lancer', 'azul', 'negro', 'rojo', 'verde', 'amarillo', 'blanco', 'grueso', 'gruesa', 'fino', 'fina', 'punta', 'medio', 'redondo', 'redonda', 'escolar', 'colegio', 'normal', 'normales', 'lapiz', 'esfero', 'borrador', 'colores', 'color', 'grafito'].includes(w));
     for (const w of palabrasOpc) {
       if (t.includes(w)) {
         return opc;
