@@ -205,7 +205,7 @@ export async function despacharMensajeWhatsApp(
       break;
 
     case 'SALUDO':
-      resultado = handleSaludo();
+      resultado = handleSaludo(nombreNegocio);
       break;
 
     case 'CONFIRMACION':
@@ -255,10 +255,10 @@ export async function despacharMensajeWhatsApp(
 }
 
 // ─── HANDLER 0: SALUDO ──────────────────────────────────────────────────
-function handleSaludo(): ResultadoRouter {
+function handleSaludo(nombreNegocio: string = 'Santiago Papelería'): ResultadoRouter {
   return {
     tipo: 'mensaje_directo',
-    textoRespuesta: `¡Hola! 👋 Bienvenido/a 📚✏️\n\n¿En qué te podemos ayudar hoy? Puedes enviarnos la *foto o PDF de tu lista de útiles* 📸📄, o escribirnos directamente los materiales que necesitas para cotizártelos con nuestro inventario en stock.`,
+    textoRespuesta: `¡Hola! 👋 Bienvenido/a a *${nombreNegocio}* 📚✏️\n\n¿En qué te podemos ayudar hoy? Puedes enviarnos la *foto o PDF de tu lista de útiles* 📸📄, o escribirnos directamente los materiales que necesitas para cotizártelos con nuestro inventario en stock.`,
     nuevoContexto: {
       historialMensajes: [],
       queryAcumulada: undefined,
