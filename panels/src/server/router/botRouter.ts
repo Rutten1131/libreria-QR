@@ -626,7 +626,7 @@ async function handleSeleccionOpcion(
   let nuevoCarrito: ItemCarrito[] = contextoPrevio?.carrito ? [...contextoPrevio.carrito] : [];
 
   if (seleccion) {
-    if (esAdicion && nuevoCarrito.length > 0) {
+    if (nuevoCarrito.length > 0) {
       // Agregar al carrito existente o actualizar si ya está
       const idxExistente = nuevoCarrito.findIndex((i) => i.productoId === seleccion!.id);
       if (idxExistente >= 0) {
@@ -640,7 +640,7 @@ async function handleSeleccionOpcion(
         });
       }
     } else {
-      // Primer ítem o reemplazo directo
+      // Primer ítem del carrito
       nuevoCarrito = [
         {
           productoId: seleccion.id,
