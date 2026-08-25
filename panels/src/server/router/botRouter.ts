@@ -693,14 +693,14 @@ async function handleConsultaProducto(
   const candidatosExactos = [...candidatosExactosRaw].sort((a, b) => a.precio - b.precio);
   const alternativas = [...alternativasRaw].sort((a, b) => a.precio - b.precio);
 
-  // Limpiar nombres de los candidatos para que la IA los vea impecables
-  const candidatosLimpios = candidatosExactos.map((c) => ({
+  // Limpiar nombres de los candidatos para que la IA los vea impecables (máximo 5 opciones)
+  const candidatosLimpios = candidatosExactos.slice(0, 5).map((c) => ({
     id: c.id,
     nombre: limpiarNombreERP(c.nombre),
     precio: c.precio,
   }));
 
-  const alternativasLimpias = alternativas.map((c) => ({
+  const alternativasLimpias = alternativas.slice(0, 5).map((c) => ({
     id: c.id,
     nombre: limpiarNombreERP(c.nombre),
     precio: c.precio,
@@ -712,13 +712,13 @@ async function handleConsultaProducto(
   if (candidatosExactos.length === 0 && alternativas.length === 0) {
     return {
       tipo: 'mensaje_directo',
-      textoRespuesta: `¡Hola! Por el momento no disponemos de ese producto en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?`,
+      textoRespuesta: `Por el momento no disponemos de ese producto en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?`,
       nuevoContexto: {
         ...contextoPrevio,
         historialMensajes: [
           ...historial.slice(-7),
           { role: 'user', texto: textoCliente },
-          { role: 'model', texto: `¡Hola! Por el momento no disponemos de ese producto en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?` },
+          { role: 'model', texto: `Por el momento no disponemos de ese producto en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?` },
         ],
       },
     };
@@ -734,7 +734,7 @@ async function handleConsultaProducto(
     nombreNegocio
   );
 
-  const listaOpciones = hayCoincidenciaExacta ? candidatosExactos : alternativas;
+  const listaOpciones = (hayCoincidenciaExacta ? candidatosExactos : alternativas).slice(0, 5);
 
   // Formatear mensaje final garantizando que nunca sea nulo o vacío
   let mensajeFinal = respVentas.mensaje_whatsapp;
