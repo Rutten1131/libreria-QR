@@ -457,7 +457,14 @@ REGLAS CRÍTICAS:
 
 5. REINICIAR: "reset", "reiniciar", "limpiar", "empezar de nuevo" → REINICIAR.
 
-6. CONFIRMACION: "sí", "confirmo", "dale", "listo", "ok" → CONFIRMACION.
+6. CONFIRMACIÓN FINAL vs ACEPTAR OPCIÓN INDIVIDUAL (ESTRICTO):
+   - Si el bot estaba preguntando por un producto específico (ej. "¿Te anoto las 2 unidades de este modelo?", "¿Te gustaría llevar este?", "¿Cuál prefieres?", "¿Te sirve?") o aún hay ítems pendientes por cotizar:
+     * Si el cliente dice "sí", "sí por favor", "si", "dale", "claro", "bueno", "anótalo", "ese", "de una", "ok":
+       ➔ "intencion": "SELECCION_OPCION"
+       ➔ "opcion_elegida_index": 1
+       ➔ "cantidad_comprar": 1 (o la cantidad en proceso)
+       * NUNCA lo clasifiques como "CONFIRMACION" porque el cliente solo está aceptando ese producto, no cerrando toda la compra.
+   - ÚNICAMENTE es "CONFIRMACION" cuando el bot YA envió el mensaje final con "💰 TOTAL ESTIMADO" / "👉 ¿Deseas confirmar tu pedido?" y el cliente responde "sí", "confirmo", "dale", "listo".
 
 7. SALUDO: ÚNICAMENTE si el mensaje es SOLO un saludo aislado (ej. "hola", "buenas", "buenos días") y NO contiene ninguna pregunta de producto. Si el cliente dice "Hola, tienes cuadernos..." o "Buenas tardes, necesito esferos", es SIEMPRE CONSULTA_PRODUCTO o LISTA_COMPUESTA.
 
@@ -706,7 +713,20 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
         json.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (parsedText) {
-        return JSON.parse(parsedText) as RespuestaAgenteVentas;
+        let cleanText = parsedText.trim();
+        if (cleanText.startsWith('```json')) cleanText = cleanText.slice(7);
+        if (cleanText.startsWith('```')) cleanText = cleanText.slice(3);
+        if (cleanText.endsWith('```')) cleanText = cleanText.slice(0, -3);
+        cleanText = cleanText.trim();
+
+        try {
+          return JSON.parse(cleanText) as RespuestaAgenteVentas;
+        } catch {
+          return {
+            accion: 'RESPONDER_CHAT',
+            mensaje_whatsapp: cleanText,
+          };
+        }
       }
     } catch (e: any) {
       console.warn(`[iaAdapter] Gemini ventas key falló (${e?.message?.slice(0, 60)}), intentando siguiente key...`);
@@ -742,7 +762,19 @@ FORMATO DE SALIDA ESTRICTO EN JSON:
         const dataGroq = await resGroq.json();
         const content = dataGroq.choices?.[0]?.message?.content;
         if (content) {
-          return JSON.parse(content) as RespuestaAgenteVentas;
+          let cleanContent = content.trim();
+          if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
+          if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
+          if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
+          cleanContent = cleanContent.trim();
+          try {
+            return JSON.parse(cleanContent) as RespuestaAgenteVentas;
+          } catch {
+            return {
+              accion: 'RESPONDER_CHAT',
+              mensaje_whatsapp: cleanContent,
+            };
+          }
         }
       } catch (err: any) {
         console.warn(`[iaAdapter] Fallback Groq ${gMod} ventas error:`, err?.message);

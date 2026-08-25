@@ -193,9 +193,9 @@ export async function despacharMensajeWhatsApp(
     }
   }
 
-  // R4: Confirmación determinística si el cliente responde "sí", "confirmo", "dale", "listo" teniendo una cotización activa
+  // R4: Confirmación determinística si el cliente responde "sí", "confirmo", "dale", "listo" teniendo una cotización activa Y sin ítems pendientes
   const esConfirmacion = /^(s[ií]|confirmo|si confirmo|s[ií] confirmo|confirmo el pedido|s[ií] confirmo el pedido|s[ií],?\s*listo confirmo|confirmo mi compra|confirmo mi pedido|dale|de acuerdo|listo|perfecto confirmo)/i.test(textoNormQ);
-  if (esConfirmacion && contextoPrevio?.carrito?.length) {
+  if (esConfirmacion && contextoPrevio?.pedidoId && (!contextoPrevio?.colaPendientes || contextoPrevio.colaPendientes.length === 0)) {
     return await handleConfirmacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio);
   }
 
@@ -216,7 +216,26 @@ export async function despacharMensajeWhatsApp(
       break;
 
     case 'CONFIRMACION':
-      resultado = await handleConfirmacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio);
+      if (contextoPrevio?.colaPendientes && contextoPrevio.colaPendientes.length > 0) {
+        resultado = await handleSeleccionOpcion(
+          tenantId,
+          clienteNombre,
+          clienteTelefono,
+          textoLimpio,
+          {
+            ...semantica,
+            intencion: 'SELECCION_OPCION',
+            opcion_elegida_index: semantica.opcion_elegida_index || 1,
+          },
+          contextoPrevio,
+          inventario,
+          nombreNegocio
+        );
+      } else if (contextoPrevio?.pedidoId || (contextoPrevio?.carrito && contextoPrevio.carrito.length > 0)) {
+        resultado = await handleConfirmacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio);
+      } else {
+        resultado = handleSaludo(nombreNegocio);
+      }
       break;
 
     case 'LISTA_COMPUESTA':
@@ -258,8 +277,13 @@ export async function despacharMensajeWhatsApp(
     { role: 'model', texto: resultado.textoRespuesta },
   ];
 
-  resultado.nuevoContexto.historialMensajes = nuevoHistorial;
-  return resultado;
+  return {
+    ...resultado,
+    nuevoContexto: {
+      ...resultado.nuevoContexto,
+      historialMensajes: nuevoHistorial,
+    },
+  };
 }
 
 // ─── HANDLER 0: SALUDO ──────────────────────────────────────────────────
@@ -301,8 +325,28 @@ async function handleConfirmacion(
   clienteTelefono: string,
   contextoPrevio?: RouterContexto
 ): Promise<ResultadoRouter> {
-  const pedidoId = contextoPrevio?.pedidoId;
-  const total = contextoPrevio?.total || 0;
+  let pedidoId = contextoPrevio?.pedidoId;
+  let total = contextoPrevio?.total || 0;
+
+  // Si no había pedidoId pero hay un carrito con productos, crear el pedido en BD
+  if (!pedidoId && contextoPrevio?.carrito && contextoPrevio.carrito.length > 0) {
+    try {
+      const cotizacion = await cotizar(
+        tenantId,
+        contextoPrevio.carrito.map((i) => ({
+          nombre: i.nombre,
+          cantidad: i.cantidad,
+          productoId: i.productoId,
+        }))
+      );
+      const pedido = await crearPedido(cotizacion, clienteNombre, clienteTelefono, 'whatsapp');
+      pedidoId = pedido.id;
+      total = cotizacion.total;
+    } catch (e: any) {
+      console.error('[BotRouter] Error al crear pedido en confirmacion:', e?.message);
+    }
+  }
+
   const pedidoNum = pedidoId ? `#${pedidoId.slice(-6)}` : '';
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://libreria-qr-brown.vercel.app';
   const linkPublico = `${appUrl}/pedir/${tenantId}?pedido=${pedidoId || ''}`;
