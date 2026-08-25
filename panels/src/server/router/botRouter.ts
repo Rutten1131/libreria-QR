@@ -736,50 +736,17 @@ async function handleConsultaProducto(
 
   const listaOpciones = hayCoincidenciaExacta ? candidatosExactos : alternativas;
 
-  // Si el agente detecta que el cliente ya eligió una opción clara
-  if (
-    respVentas.accion === 'COTIZAR_PEDIDO' &&
-    respVentas.producto_elegido_index &&
-    respVentas.producto_elegido_index <= listaOpciones.length
-  ) {
-    const itemElegido = listaOpciones[respVentas.producto_elegido_index - 1] || listaOpciones[0];
-    const cantFinal = respVentas.cantidad || cantidad;
-    const itemCarrito: ItemCarrito = {
-      productoId: itemElegido.id,
-      nombre: itemElegido.nombre,
-      precioUnitario: itemElegido.precio,
-      cantidad: cantFinal,
-    };
-
-    const carritoActual = contextoPrevio?.carrito ? [...contextoPrevio.carrito, itemCarrito] : [itemCarrito];
-
-    return procesarSiguienteOFinalizar(
-      tenantId,
-      clienteNombre,
-      clienteTelefono,
-      carritoActual,
-      {
-        ...contextoPrevio,
-        opcionesPresentadas: listaOpciones,
-      },
-      inventario,
-      nombreNegocio,
-      itemElegido.nombre,
-      cantFinal
-    );
-  }
-
   // Formatear mensaje final garantizando que nunca sea nulo o vacío
   let mensajeFinal = respVentas.mensaje_whatsapp;
   if (!mensajeFinal || mensajeFinal.trim().length === 0) {
     if (listaOpciones.length > 0) {
       const opts = listaOpciones
-        .slice(0, 8)
+        .slice(0, 6)
         .map((o, i) => `${i + 1}️⃣ *${limpiarNombreERP(o.nombre)}* — $${o.precio.toFixed(2)} c/u`)
         .join('\n');
-      mensajeFinal = `¡Hola! Sí tenemos opciones disponibles en stock:\n\n${opts}\n\n¿Cuál de estas te gustaría llevar o cuántas unidades necesitas?`;
+      mensajeFinal = `Tenemos estas opciones disponibles en stock:\n\n${opts}\n\n¿Cuál de estas opciones te gustaría llevar?`;
     } else {
-      mensajeFinal = `¡Hola! Por el momento no disponemos de ese producto específico en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?`;
+      mensajeFinal = `Por el momento no disponemos de ese producto específico en stock 😅. ¿Te gustaría consultar por algún otro material escolar o de oficina?`;
     }
   }
 
