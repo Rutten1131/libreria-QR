@@ -12,6 +12,7 @@ import {
   detectarAmbiguedad,
   filtrarCandidatosPorCategoria,
   resolverSeleccionOpcion,
+  esItemEspecifico,
   norm,
   CandidatoProducto,
 } from '../services/variantService';
@@ -505,36 +506,86 @@ async function handleListaCompuesta(
     return handleSaludo(nombreNegocio);
   }
 
-  // Encolar todos los ítems; el primero se procesa ahora, el resto queda pendiente
-  const [primero, ...resto] = items;
+  // 1. Clasificar ítems en Específicos (match directo a carrito) y Generales (ciclo consultivo)
+  let nuevoCarrito: ItemCarrito[] = contextoPrevio?.carrito ? [...contextoPrevio.carrito] : [];
+  const itemsGenerales: ItemPendiente[] = [];
+  const itemsAutoAgregados: string[] = [];
+
+  for (const item of items) {
+    const cat = buscarCategoriaParaItem(item.nombre);
+    const esEsp = esItemEspecifico(item.nombre, cat);
+
+    if (esEsp) {
+      const candidatos = filtrarCandidatosPorCategoria(cat, item.nombre, inventario);
+      if (candidatos.length > 0) {
+        const mejorMatch = candidatos[0];
+        const idxExistente = nuevoCarrito.findIndex((i) => i.productoId === mejorMatch.id);
+        if (idxExistente >= 0) {
+          nuevoCarrito[idxExistente].cantidad += item.cantidad;
+        } else {
+          nuevoCarrito.push({
+            productoId: mejorMatch.id,
+            nombre: mejorMatch.nombre,
+            precioUnitario: mejorMatch.precio,
+            cantidad: item.cantidad,
+          });
+        }
+        itemsAutoAgregados.push(`${item.cantidad}x ${limpiarNombreERP(mejorMatch.nombre)}`);
+        continue;
+      }
+    }
+
+    // Es general o no hubo coincidencia unívoca -> entra a la cola consultiva
+    itemsGenerales.push({ itemRaw: item.nombre, cantidad: item.cantidad });
+  }
+
+  // 2. Si TODOS los ítems eran específicos y se añadieron al carrito:
+  if (itemsGenerales.length === 0 && nuevoCarrito.length > 0) {
+    return generarRespuestaCotizacion(
+      tenantId,
+      clienteNombre,
+      clienteTelefono,
+      nuevoCarrito,
+      {
+        ...contextoPrevio,
+        colaPendientes: [],
+        itemEnProceso: null,
+      },
+      textoCliente
+    );
+  }
+
+  // 3. Si hay ítems generales pendientes:
+  const [primero, ...resto] = itemsGenerales;
   const colaExistente = contextoPrevio?.colaPendientes || [];
-  // Si ya existía una cola previa (ej. borradores y lápices) y el usuario desglosó el primer ítem,
-  // mantener los ítems pendientes previos al final de la cola
+  // Preservar la cola existente si el usuario estaba desglosando o corrigiendo un ítem
   const colaPendientes: ItemPendiente[] = [
-    ...resto.map((i) => ({ itemRaw: i.nombre, cantidad: i.cantidad })),
+    ...resto,
     ...colaExistente,
   ];
-  const itemEnProceso: ItemPendiente = { itemRaw: primero.nombre, cantidad: primero.cantidad };
+  const itemEnProceso: ItemPendiente = primero;
 
-  // Construir mensaje introductorio + consultar primer ítem
+  // Construir mensaje introductorio claro y ordenado
   const listaTexto = items.map((i, idx) => `${idx + 1}. ${i.cantidad}x ${i.nombre}`).join('\n');
-  const introMsg = `📋 ¡Perfecto! Vamos a armar tu pedido paso a paso:\n${listaTexto}\n\nEmpecemos con *${primero.nombre}* (${primero.cantidad} unidades):`;
+  const notaAgregados = itemsAutoAgregados.length > 0
+    ? `✅ *Agregados directamente al pedido:*\n${itemsAutoAgregados.map((a) => `• ${a}`).join('\n')}\n\n`
+    : '';
 
-  // Procesar el primer ítem a través del flujo consultivo
+  const introMsg = `📋 ¡Perfecto! Vamos a armar tu pedido paso a paso:\n${listaTexto}\n\n${notaAgregados}Empecemos con *${primero.itemRaw}* (${primero.cantidad} unidades):`;
+
   const semanticaPrimero: IntencionSemantica = {
     intencion: 'CONSULTA_PRODUCTO',
-    producto_principal: primero.nombre,
-    especificaciones_acumuladas: primero.nombre,
+    producto_principal: primero.itemRaw,
+    especificaciones_acumuladas: primero.itemRaw,
     cantidad_comprar: primero.cantidad,
     opcion_elegida_index: null,
   };
 
   const resPrimero = await handleConsultaProducto(
     tenantId, clienteNombre, clienteTelefono,
-    primero.nombre, semanticaPrimero, contextoPrevio, inventario, nombreNegocio
+    primero.itemRaw, semanticaPrimero, contextoPrevio, inventario, nombreNegocio
   );
 
-  // Combinar mensaje introductorio con la pregunta consultiva del primer ítem
   return {
     ...resPrimero,
     textoRespuesta: `${introMsg}\n\n${resPrimero.textoRespuesta}`,
@@ -542,7 +593,7 @@ async function handleListaCompuesta(
       ...resPrimero.nuevoContexto,
       colaPendientes,
       itemEnProceso,
-      carrito: contextoPrevio?.carrito || [],
+      carrito: nuevoCarrito,
     },
   };
 }

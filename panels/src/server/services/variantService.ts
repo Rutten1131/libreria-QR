@@ -324,15 +324,46 @@ export function resolverSeleccionOpcion(
 
 /**
  * Determina si el texto del cliente ya contiene todas las especificaciones necesarias
+ * para considerarse un producto específico (marca, modelo, tipo de hoja/color)
  */
-function esDetalleCompleto(texto: string, cat: CategoriaConocimiento): boolean {
-  const textoNorm = norm(texto);
+export function esItemEspecifico(texto: string, cat: CategoriaConocimiento | null): boolean {
+  const tNorm = norm(texto);
 
-  // Marcas conocidas que indican elección específica de marca
-  const tieneMarca = ['norma', 'stanford', 'jean book', 'scribe', 'andino', 'andaluz', 'pelikan', 'faber', 'artesco', 'bic', 'merletto', 'monami'].some((m) => textoNorm.includes(m));
+  // 1. Marcas reconocidas
+  const tieneMarca = [
+    'norma', 'stanford', 'jean book', 'scribe', 'andino', 'andaluz',
+    'pelikan', 'faber', 'artesco', 'bic', 'staedtler', 'pilot',
+    'monami', 'papermate', 'paper mate', 'stabilo', 'artline', 'nataraj',
+    'hot focus', 'x-pen', 'pentel', 'kiut'
+  ].some((m) => tNorm.includes(m));
+
   if (tieneMarca) return true;
 
-  // Si no especificó marca, siempre permitimos ver las opciones si hay más de 1
+  // 2. Cuaderno específico: formato (cosido/espiral) + pautado (cuadros/líneas) o número de hojas
+  if (cat?.familia === 'cuaderno') {
+    const tieneFormato = tNorm.includes('cosid') || tNorm.includes('espiral') || tNorm.includes('anillad') || tNorm.includes('grapa') || tNorm.includes('parvulario');
+    const tienePautado = tNorm.includes('cuadro') || tNorm.includes('linea') || tNorm.includes('dibujo') || tNorm.includes('4l');
+    const tieneHojas = /\b(50|80|100|160|200)\b/.test(tNorm);
+    if ((tieneFormato && tienePautado) || (tieneFormato && tieneHojas)) return true;
+  }
+
+  // 3. Bolígrafo específico: color + tipo/punta (ej. "esfero azul punta fina", "bolígrafo negro gel")
+  if (cat?.familia === 'boligrafo') {
+    const tieneColor = ['azul', 'negro', 'rojo', 'verde', 'morado', 'celeste'].some((c) => tNorm.includes(c));
+    const tienePunta = tNorm.includes('fina') || tNorm.includes('gruesa') || tNorm.includes('gel') || tNorm.includes('medio') || tNorm.includes('media');
+    if (tieneColor && tienePunta) return true;
+  }
+
+  // 4. Borrador específico (ej. "borrador miga blanco", "borrador de queso")
+  if (cat?.familia === 'borrador') {
+    if (tNorm.includes('miga') || tNorm.includes('queso') || tNorm.includes('bicolor') || tNorm.includes('kuromi') || tNorm.includes('figura')) return true;
+  }
+
+  // 5. Lápiz específico (ej. "lápiz 2b", "lápiz hb", "lápiz triangular", "lápiz bicolor")
+  if (cat?.familia === 'lapiz') {
+    if (tNorm.includes('hb') || tNorm.includes('2b') || tNorm.includes('triang') || tNorm.includes('bicolor') || tNorm.includes('checador')) return true;
+  }
+
   return false;
 }
 
@@ -352,7 +383,7 @@ export function detectarAmbiguedad(
   const categoria = buscarCategoriaParaItem(itemTexto);
 
   // Si el cliente ya fue específico, no molestamos con preguntas
-  if (categoria && esDetalleCompleto(itemTexto, categoria)) {
+  if (categoria && esItemEspecifico(itemTexto, categoria)) {
     return { esAmbiguo: false, categoria, opcionesDisponibles: candidatosEnStock };
   }
 
