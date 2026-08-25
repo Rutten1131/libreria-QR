@@ -420,12 +420,18 @@ Ejemplo de salida:
   throw new Error(`Todos los modelos de texto fallaron. Ultimo: ${msg.slice(0, 200)}`);
 }
 
+export interface OpcionElegidaItem {
+  index: number;
+  cantidad: number;
+}
+
 export interface IntencionSemantica {
   intencion: 'SALUDO' | 'CONSULTA_PRODUCTO' | 'SELECCION_OPCION' | 'LISTA_COMPUESTA' | 'CONFIRMACION' | 'REINICIAR' | 'OTRO';
   producto_principal?: string | null;
   especificaciones_acumuladas?: string | null;
   cantidad_comprar: number;
   opcion_elegida_index?: number | null;
+  opciones_elegidas?: OpcionElegidaItem[];
   items_lista?: Array<{ nombre: string; cantidad: number }>;
 }
 
@@ -449,7 +455,15 @@ Tu trabajo es CLASIFICAR la intención del último mensaje del cliente, consider
 REGLAS CRÍTICAS:
 1. MEMORIA DEL HILO: Si el cliente dice "pero una docena pues", "el que ya te dije", "cambia a 12", o "pero quiero espiral", RECUERDA qué producto estaban discutiendo en mensajes anteriores. Su intención es CORREGIR o ACTUALIZAR el pedido anterior, NO buscar un producto nuevo.
 
-2. CANTIDAD vs ATRIBUTO: "100 hojas" y "12 colores" son ATRIBUTOS del producto (modelo/presentación), NO la cantidad a comprar. La cantidad es 1 a menos que el cliente diga explícitamente: "una docena" (12), "media docena" (6), "2 cuadernos" (2), "quiero 5" (5), etc.
+2. CANTIDAD vs ÍNDICE DE OPCIÓN (ESTRICTO):
+   - Si el cliente solo escribe un número o frase simple (ej. "4", "el 4", "la 3", "opcion 2", "el bic"):
+     * "intencion": "SELECCION_OPCION"
+     * "opcion_elegida_index": 4 (o el número correspondiente)
+     * "cantidad_comprar": 1 (o la cantidad solicitada previamente). NUNCA pongas cantidad_comprar: 4 solo porque eligió la opción 4.
+   - Si el cliente pide VARIAS opciones simultáneamente (ej. "uno de cada uno", "ambos", "1 del blanco y 1 del bicolor", "el 1 y el 2"):
+     * "intencion": "SELECCION_OPCION"
+     * "opciones_elegidas": [{ "index": 1, "cantidad": 1 }, { "index": 2, "cantidad": 1 }]
+     * "cantidad_comprar": 2
 
 3. CORRECCIÓN DE CANTIDAD: Si el cliente dice "pero una docena pues", "te dije una docena", "ponle 12", es SELECCION_OPCION con cantidad_comprar actualizada. NO es una nueva consulta.
 
@@ -487,8 +501,11 @@ REGLAS CRÍTICAS:
    - "1 resma de papel" = 1 unidad de resma (1 paquete de 500 hojas). La cantidad a cotizar es 1.
    - "1 docena" = 12 unidades. "media docena" = 6 unidades. "1 par" = 2 unidades.
 
-11. EXTRACCIÓN EXHAUSTIVA DE LISTAS DE ÚTILES:
+11. EXTRACCIÓN EXHAUSTIVA DE LISTAS DE ÚTILES Y DESGLOSE DE COLORES:
    - Cuando el cliente pide múltiples útiles (ej. cuadernos, lápices bicolores, tijeras, borradores), DEBES extraer ABSOLUTAMENTE TODOS los ítems en "items_lista" sin omitir ninguno.
+   - Si el cliente desglosa o especifica colores o tipos para un producto (ej. "de esfero quiero uno azul y uno negro de punta gruesa", "1 azul y 1 rojo", "2 a cuadros y 1 a líneas"):
+     * "intencion": "LISTA_COMPUESTA"
+     * "items_lista": [{ "nombre": "esfero azul punta gruesa", "cantidad": 1 }, { "nombre": "esfero negro punta gruesa", "cantidad": 1 }]
    - Si incluye una pregunta adicional (ej. "¿Hacen entregas a domicilio?"), clasifícalo como "LISTA_COMPUESTA" y asegúrate de no omitir ningún producto.
 
 RESPONDE SIEMPRE en JSON EXACTO:
@@ -498,6 +515,7 @@ RESPONDE SIEMPRE en JSON EXACTO:
   "especificaciones_acumuladas": "cuaderno 100 hojas cuadros espiral" | null,
   "cantidad_comprar": 1,
   "opcion_elegida_index": 1 | null,
+  "opciones_elegidas": [{ "index": 1, "cantidad": 1 }] | null,
   "items_lista": [{ "nombre": "cuaderno stitch 200 hojas", "cantidad": 2 }, { "nombre": "cuaderno avengers 200 hojas", "cantidad": 3 }]
 }`;
 

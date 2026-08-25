@@ -201,6 +201,34 @@ export async function despacharMensajeWhatsApp(
     return await handleConfirmacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio);
   }
 
+  // R5: Multi-selección determinística ("uno de cada uno", "ambos", "los dos", "el 1 y el 2")
+  const esMultiSeleccion = /\b(uno de cada uno|uno de cada|ambos|los dos|las dos|1 de cada uno|1 de cada|el 1 y el 2|la 1 y la 2|dame los dos|dame ambos|dame las dos|los 2|las 2)\b/i.test(textoNormQ);
+  if (esMultiSeleccion && opcionesActivas.length >= 2) {
+    // Forzar SELECCION_OPCION con opciones_elegidas para todas las opciones presentadas
+    semantica.intencion = 'SELECCION_OPCION';
+    semantica.opciones_elegidas = opcionesActivas.map((_, i) => ({ index: i + 1, cantidad: 1 }));
+    semantica.opcion_elegida_index = null;
+  }
+
+  // R6: Reclamación de ítems pendientes ("faltan los lápices", "y los lápices?", "no me cotizaste los borradores")
+  // Si hay cola pendiente y el LLM quiere reiniciar como LISTA_COMPUESTA, mejor continuar la cola
+  if (
+    semantica.intencion === 'LISTA_COMPUESTA' &&
+    contextoPrevio?.colaPendientes &&
+    contextoPrevio.colaPendientes.length > 0
+  ) {
+    // No reiniciar — continuar procesando la cola existente
+    const cola = contextoPrevio.colaPendientes;
+    const [siguiente, ...restoCola] = cola;
+    return procesarSiguienteOFinalizar(
+      tenantId, clienteNombre, clienteTelefono,
+      contextoPrevio.carrito || [],
+      { ...contextoPrevio, colaPendientes: restoCola },
+      inventario, nombreNegocio,
+      undefined, undefined
+    );
+  }
+
   // ─── FIN REGLAS DETERMINÍSTICAS ───────────────────────────────────────────────
 
   console.log(`[BotRouter] Intención: ${semantica.intencion} | Prod: ${semantica.producto_principal} | Cant: ${semantica.cantidad_comprar} | OptIndex: ${semantica.opcion_elegida_index}`);
@@ -479,7 +507,13 @@ async function handleListaCompuesta(
 
   // Encolar todos los ítems; el primero se procesa ahora, el resto queda pendiente
   const [primero, ...resto] = items;
-  const colaPendientes: ItemPendiente[] = resto.map((i) => ({ itemRaw: i.nombre, cantidad: i.cantidad }));
+  const colaExistente = contextoPrevio?.colaPendientes || [];
+  // Si ya existía una cola previa (ej. borradores y lápices) y el usuario desglosó el primer ítem,
+  // mantener los ítems pendientes previos al final de la cola
+  const colaPendientes: ItemPendiente[] = [
+    ...resto.map((i) => ({ itemRaw: i.nombre, cantidad: i.cantidad })),
+    ...colaExistente,
+  ];
   const itemEnProceso: ItemPendiente = { itemRaw: primero.nombre, cantidad: primero.cantidad };
 
   // Construir mensaje introductorio + consultar primer ítem
@@ -599,20 +633,87 @@ async function handleSeleccionOpcion(
   nombreNegocio: string = 'Santiago Papelería'
 ): Promise<ResultadoRouter> {
   const opciones = contextoPrevio?.opcionesPresentadas || [];
+  const textoMin = textoCliente.toLowerCase().trim();
+
+  // ──── 0. MULTI-SELECCIÓN ("uno de cada uno", "ambos", "los dos") ────
+  // Detectar por regex local O por opciones_elegidas del LLM
+  const esMultiLocal = /\b(uno de cada uno|uno de cada|ambos|los dos|las dos|1 de cada uno|1 de cada|el 1 y el 2|la 1 y la 2|dame los dos|dame ambos|dame las dos|los 2|las 2)\b/i.test(textoMin);
+  const multiOpciones = semantica.opciones_elegidas && semantica.opciones_elegidas.length >= 2
+    ? semantica.opciones_elegidas
+    : esMultiLocal && opciones.length >= 2
+      ? opciones.map((_, i) => ({ index: i + 1, cantidad: 1 }))
+      : null;
+
+  if (multiOpciones && opciones.length >= 2) {
+    let nuevoCarrito: ItemCarrito[] = contextoPrevio?.carrito ? [...contextoPrevio.carrito] : [];
+    let totalAgregado = 0;
+    const nombresAgregados: string[] = [];
+
+    for (const oe of multiOpciones) {
+      if (oe.index >= 1 && oe.index <= opciones.length) {
+        const opcion = opciones[oe.index - 1];
+        const cantAgregar = oe.cantidad || 1;
+        const idxExistente = nuevoCarrito.findIndex((i) => i.productoId === opcion.id);
+        if (idxExistente >= 0) {
+          nuevoCarrito[idxExistente].cantidad += cantAgregar;
+        } else {
+          nuevoCarrito.push({
+            productoId: opcion.id,
+            nombre: opcion.nombre,
+            precioUnitario: opcion.precio,
+            cantidad: cantAgregar,
+          });
+        }
+        totalAgregado += cantAgregar;
+        nombresAgregados.push(limpiarNombreERP(opcion.nombre));
+      }
+    }
+
+    // Ajustar cola: si itemEnProceso pedía N y se agregaron N, no re-encolar; si menos, re-encolar restante
+    let colaActualizada = contextoPrevio?.colaPendientes ? [...contextoPrevio.colaPendientes] : [];
+    const cantidadEnProceso = contextoPrevio?.itemEnProceso?.cantidad || totalAgregado;
+    if (contextoPrevio?.itemEnProceso && cantidadEnProceso > totalAgregado) {
+      const cantRestante = cantidadEnProceso - totalAgregado;
+      colaActualizada.unshift({
+        itemRaw: contextoPrevio.itemEnProceso.itemRaw,
+        cantidad: cantRestante,
+      });
+    }
+
+    return procesarSiguienteOFinalizar(
+      tenantId, clienteNombre, clienteTelefono,
+      nuevoCarrito,
+      { ...contextoPrevio, colaPendientes: colaActualizada },
+      inventario, nombreNegocio,
+      nombresAgregados.join(' + '),
+      totalAgregado
+    );
+  }
+
+  // ──── 1. SELECCIÓN INDIVIDUAL ────
   let seleccion: CandidatoProducto | null = null;
 
-  // 1. Intentar por índice numérico de la IA
+  // 1a. Intentar por índice numérico de la IA
   if (semantica.opcion_elegida_index && semantica.opcion_elegida_index <= opciones.length) {
     seleccion = opciones[semantica.opcion_elegida_index - 1];
   }
 
-  // 2. Intentar por nombre/marca/personaje en las opciones presentadas
+  // 1b. Intentar por nombre/marca/personaje en las opciones presentadas
   if (!seleccion && opciones.length > 0) {
     seleccion = resolverSeleccionOpcion(textoCliente, opciones);
   }
 
-  const cantidad = semantica.cantidad_comprar || contextoPrevio?.itemEnProceso?.cantidad || contextoPrevio?.cantidad || 1;
-  const textoMin = textoCliente.toLowerCase().trim();
+  // CANTIDAD: Usar la cantidad del itemEnProceso (lo que pidió el usuario al inicio),
+  // NO la que el LLM pone en cantidad_comprar (que puede confundir índice con cantidad).
+  // Si no hay itemEnProceso, usar contextoPrevio.cantidad, y solo como último recurso semantica.cantidad_comprar.
+  const cantidadBase = contextoPrevio?.itemEnProceso?.cantidad || contextoPrevio?.cantidad || 1;
+  // Solo usar semantica.cantidad_comprar si el usuario explícitamente pidió una cantidad diferente
+  // (ej. "dame 3 del primero"), no si solo dijo un número (que es índice de opción)
+  const textoEsNumeroSolo = /^\d+$/.test(textoCliente.trim());
+  const cantidad = (!textoEsNumeroSolo && semantica.cantidad_comprar && semantica.cantidad_comprar !== 1)
+    ? semantica.cantidad_comprar
+    : cantidadBase;
+
   const esAdicion =
     Boolean(contextoPrevio?.colaPendientes?.length) ||
     textoMin.startsWith('y ') ||
