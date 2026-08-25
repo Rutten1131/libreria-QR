@@ -128,10 +128,12 @@ export async function despacharMensajeWhatsApp(
   }
 
   // R2: Detectar "No, mejor N" / "solo N" / "mejor ponme N" → cambio de cantidad sobre producto activo en contexto
+  // NOTA CRÍTICA: Solo se aplica si NO hay opciones activas en pantalla (para no interferir con selecciones tipo "2", "3")
   const matchCambioQty = textoNormQ.match(/^(?:no,?\s*)?(?:mejor|solo|son|dame|quiero|ponme|cambiar?|cambi[aá]me?)\s+(\d+)$|^(\d+)\s*(?:nomas?|no mas?|mejor)$/i);
   const matchCantNum = textoNormQ.match(/^\d+$/);
   if (
     contextoPrevio?.carrito?.length &&
+    opcionesActivas.length === 0 &&
     (matchCambioQty || matchCantNum) &&
     semantica.intencion !== 'LISTA_COMPUESTA'
   ) {
@@ -651,12 +653,29 @@ async function handleSeleccionOpcion(
       ];
     }
 
+    const cantidadEnProceso = contextoPrevio?.itemEnProceso?.cantidad || cantidad;
+    let colaActualizada = contextoPrevio?.colaPendientes ? [...contextoPrevio.colaPendientes] : [];
+
+    // Si el usuario pidió varios (ej. 2 esferos) pero solo seleccionó 1 (ej. el azul),
+    // encolar el restante para que el bot pregunte por el otro color/modelo antes de pasar a los siguientes ítems
+    if (contextoPrevio?.itemEnProceso && cantidadEnProceso > cantidad) {
+      const cantRestante = cantidadEnProceso - cantidad;
+      const nombreRestante = contextoPrevio.itemEnProceso.itemRaw;
+      colaActualizada.unshift({
+        itemRaw: `${nombreRestante}`,
+        cantidad: cantRestante,
+      });
+    }
+
     return procesarSiguienteOFinalizar(
       tenantId,
       clienteNombre,
       clienteTelefono,
       nuevoCarrito,
-      contextoPrevio,
+      {
+        ...contextoPrevio,
+        colaPendientes: colaActualizada,
+      },
       inventario,
       nombreNegocio,
       seleccion.nombre,
