@@ -46,26 +46,29 @@ async function testUserFlow() {
     return res;
   }
 
-  // Turno 1
-  await enviar('Hola, quiero 2 esferos 2 borradores y 2 lapices');
+  // Turno 1: Lista inicial
+  await enviar('Hola, dame 2 esferos, dame 2 lapices y 2 borradores porfavor');
 
-  // Turno 2
-  await enviar('Uno azul y uno negro quisiera de marca bic de punta gruesa');
+  // Turno 2: Desglose de esferos
+  await enviar('1 esfero azul y 1 esfero negro porfavor, de bic, si hay con punta gruesa dejame ver cuales tiene');
 
-  // Turno 3
-  await enviar('Okey azul, pero no tinees ningun esfero negro? sin que swea punta gruesa');
+  // Turno 3: Aceptación del Bic azul
+  await enviar('Si');
 
-  // Turno 4
-  await enviar('Si, anotame el azul y quiero la opcion 3');
+  // Turno 4: Selección del esfero negro
+  await enviar('el 1');
 
-  // Turno 5
-  await enviar('uno para pintar nada mas');
+  // Turno 5: Especificación de lápices
+  await enviar('quiero lapices hb normales');
 
-  // Turno 6
-  await enviar('no lapiz de grafito no pintura porfavor, solo lapiz de colegio punta gruesa');
+  // Turno 6: Selección de lápices
+  await enviar('el 1');
 
-  // Turno 7
-  await enviar('quiero uno del 1 y uno del 2');
+  // Turno 7: Selección de borradores
+  await enviar('borrador blanco de queso');
+
+  // Turno 8: Confirmación de borrador
+  await enviar('1');
 }
 
 testUserFlow().catch(console.error);

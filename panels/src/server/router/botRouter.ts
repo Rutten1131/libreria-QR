@@ -754,16 +754,29 @@ async function handleSeleccionOpcion(
     seleccion = resolverSeleccionOpcion(textoCliente, opciones);
   }
 
-  // CANTIDAD: Usar la cantidad del itemEnProceso (lo que pidió el usuario al inicio),
-  // NO la que el LLM pone en cantidad_comprar (que puede confundir índice con cantidad).
-  // Si no hay itemEnProceso, usar contextoPrevio.cantidad, y solo como último recurso semantica.cantidad_comprar.
-  const cantidadBase = contextoPrevio?.itemEnProceso?.cantidad || contextoPrevio?.cantidad || 1;
-  // Solo usar semantica.cantidad_comprar si el usuario explícitamente pidió una cantidad diferente
-  // (ej. "dame 3 del primero"), no si solo dijo un número (que es índice de opción)
+  // CANTIDAD:
+  // Si el usuario confirma o selecciona una opción individual de un ítem que pedía varias unidades
+  // (ej. el cliente pidió 2 esferos pero está resolviendo 1 azul y luego 1 negro):
   const textoEsNumeroSolo = /^\d+$/.test(textoCliente.trim());
-  const cantidad = (!textoEsNumeroSolo && semantica.cantidad_comprar && semantica.cantidad_comprar !== 1)
-    ? semantica.cantidad_comprar
-    : cantidadBase;
+  let cantidad = 1;
+  if (!textoEsNumeroSolo && semantica.cantidad_comprar && semantica.cantidad_comprar > 1) {
+    cantidad = semantica.cantidad_comprar;
+  } else if (contextoPrevio?.itemEnProceso?.cantidad === 1) {
+    cantidad = 1;
+  } else if (
+    opciones.length === 1 &&
+    (/^(si|s[ií]|dale|ese|bueno|claro|por\s*favor|porfavor|an[oó]talo|de una|ok)/i.test(textoMin) ||
+      textoMin === '1' ||
+      textoMin === 'la 1' ||
+      textoMin === 'el 1')
+  ) {
+    // El bot preguntó por 1 modelo específico (ej. "¿Te llevamos este Bic azul?"), consumir 1 unidad
+    cantidad = 1;
+  } else if (contextoPrevio?.itemEnProceso?.cantidad) {
+    cantidad = contextoPrevio.itemEnProceso.cantidad;
+  } else {
+    cantidad = 1;
+  }
 
   const esAdicion =
     Boolean(contextoPrevio?.colaPendientes?.length) ||
@@ -949,7 +962,34 @@ async function handleConsultaProducto(
     nombreNegocio
   );
 
-  const listaOpciones = (hayCoincidenciaExacta ? candidatosExactos : alternativas).slice(0, 5);
+  // 1. Extraer los productos que la IA realmente presentó en su mensaje
+  let listaOpciones: CandidatoProducto[] = [];
+
+  if (respVentas.opciones_presentadas_ids && respVentas.opciones_presentadas_ids.length > 0) {
+    for (const id of respVentas.opciones_presentadas_ids) {
+      const prod = inventario.find((p) => p.id === id);
+      if (prod && !listaOpciones.some((p) => p.id === prod.id)) {
+        listaOpciones.push(prod);
+      }
+    }
+  }
+
+  // Fallback: extraer por nombres mencionados en mensajeFinal
+  if (listaOpciones.length === 0 && respVentas.mensaje_whatsapp) {
+    const pool = hayCoincidenciaExacta ? candidatosExactos : alternativas;
+    for (const cand of pool) {
+      const nomLimpio = norm(limpiarNombreERP(cand.nombre)).slice(0, 14);
+      if (norm(respVentas.mensaje_whatsapp).includes(nomLimpio)) {
+        if (!listaOpciones.some((o) => o.id === cand.id)) {
+          listaOpciones.push(cand);
+        }
+      }
+    }
+  }
+
+  if (listaOpciones.length === 0) {
+    listaOpciones = (hayCoincidenciaExacta ? candidatosExactos : alternativas).slice(0, 5);
+  }
 
   // Formatear mensaje final garantizando que nunca sea nulo o vacío
   let mensajeFinal = respVentas.mensaje_whatsapp;
@@ -965,8 +1005,7 @@ async function handleConsultaProducto(
     }
   }
 
-  // Si es conversación, duda o pregunta sobre opciones
-  // Guardar TODAS las opciones para que el índice del usuario coincida con el orden de la IA
+  // Guardar EXACTAMENTE las opciones presentadas para que el índice coincida al 100% con la elección del usuario
   return {
     tipo: 'pregunta_variante',
     textoRespuesta: mensajeFinal,

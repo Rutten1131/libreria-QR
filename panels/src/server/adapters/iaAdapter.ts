@@ -613,6 +613,7 @@ Clasifica la intención del último mensaje. JSON:`;
 export interface RespuestaAgenteVentas {
   accion: 'RESPONDER_CHAT' | 'COTIZAR_PEDIDO';
   mensaje_whatsapp: string;
+  opciones_presentadas_ids?: string[];
   producto_elegido_index?: number | null;
   cantidad?: number | null;
 }
@@ -631,12 +632,12 @@ export async function generarRespuestaVentas(
 ): Promise<RespuestaAgenteVentas> {
   const stockTexto = productosEnStock
     .slice(0, 5)
-    .map((p, i) => `${i + 1}. ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
+    .map((p, i) => `ID: "${p.id}" | ${i + 1}. ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
     .join('\n');
 
   const alternativasTexto = alternativasEnStock
     .slice(0, 5)
-    .map((p, i) => `${i + 1}. ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
+    .map((p, i) => `ID: "${p.id}" | ${i + 1}. ${p.nombre} — $${p.precio.toFixed(2)} c/u`)
     .join('\n');
 
   const systemPrompt = `Eres el asistente y vendedor estrella de "${nombreLibreria}" en WhatsApp (Ecuador).
@@ -678,7 +679,8 @@ REGLAS DE ORO DE ATENCIÓN Y VENTA:
 FORMATO DE SALIDA ESTRICTO EN JSON:
 {
   "accion": "RESPONDER_CHAT",
-  "mensaje_whatsapp": string, // Tu mensaje formateado para WhatsApp
+  "mensaje_whatsapp": string, // Tu mensaje formateado para WhatsApp con 1️⃣, 2️⃣, etc.
+  "opciones_presentadas_ids": string[], // Array con los IDs exactos de los productos que mencionaste en tu mensaje, en el orden 1️⃣, 2️⃣
   "producto_elegido_index": null,
   "cantidad": null
 }`;
