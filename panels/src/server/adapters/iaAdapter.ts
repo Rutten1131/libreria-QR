@@ -455,14 +455,15 @@ Tu trabajo es CLASIFICAR la intención del último mensaje del cliente, consider
 REGLAS CRÍTICAS:
 1. MEMORIA DEL HILO: Si el cliente dice "pero una docena pues", "el que ya te dije", "cambia a 12", o "pero quiero espiral", RECUERDA qué producto estaban discutiendo en mensajes anteriores. Su intención es CORREGIR o ACTUALIZAR el pedido anterior, NO buscar un producto nuevo.
 
-2. CANTIDAD vs ÍNDICE DE OPCIÓN (ESTRICTO):
-   - Si el cliente solo escribe un número o frase simple (ej. "4", "el 4", "la 3", "opcion 2", "el bic"):
+2. CANTIDAD vs ÍNDICE DE OPCIÓN Y SELECCIÓN MÚLTIPLE (ESTRICTO):
+   - Si el cliente solo escribe un número o frase simple (ej. "4", "el 4", "la 3", "opcion 2", "el bic", "quiero el 3"):
      * "intencion": "SELECCION_OPCION"
      * "opcion_elegida_index": 4 (o el número correspondiente)
      * "cantidad_comprar": 1 (o la cantidad solicitada previamente). NUNCA pongas cantidad_comprar: 4 solo porque eligió la opción 4.
-   - Si el cliente pide VARIAS opciones simultáneamente (ej. "uno de cada uno", "ambos", "1 del blanco y 1 del bicolor", "el 1 y el 2"):
+   - Si el cliente elige VARIAS opciones a la vez (ej. "uno de cada uno", "ambos", "el 1 y el 2", "uno del 1 y uno del 2", "Sí, anótame el azul y quiero la opción 3", "anótame el 1 y el 3"):
      * "intencion": "SELECCION_OPCION"
      * "opciones_elegidas": [{ "index": 1, "cantidad": 1 }, { "index": 2, "cantidad": 1 }]
+     * "opcion_elegida_index": 3 (o el índice principal mencionado)
      * "cantidad_comprar": 2
 
 3. CORRECCIÓN DE CANTIDAD: Si el cliente dice "pero una docena pues", "te dije una docena", "ponle 12", es SELECCION_OPCION con cantidad_comprar actualizada. NO es una nueva consulta.
@@ -482,31 +483,24 @@ REGLAS CRÍTICAS:
 
 7. SALUDO: ÚNICAMENTE si el mensaje es SOLO un saludo aislado (ej. "hola", "buenas", "buenos días") y NO contiene ninguna pregunta de producto. Si el cliente dice "Hola, tienes cuadernos..." o "Buenas tardes, necesito esferos", es SIEMPRE CONSULTA_PRODUCTO o LISTA_COMPUESTA.
 
-8. ESPECIFICACIÓN vs SELECCIÓN DE OPCIÓN (ESTRICTO):
-   - Si el cliente está RESPONDIENDO A UNA PREGUNTA DE FILTRO o describiendo lo que busca (ej. "azul de punta redonda", "azul punta gruesa", "100 hojas a cuadros", "para colegio", "blanco de queso", "para pintar"):
-     * "intencion": "CONSULTA_PRODUCTO" (NUNCA "SELECCION_OPCION").
-     * "especificaciones_acumuladas": combina el producto con las características (ej. "esfero azul punta redonda").
+8. ESPECIFICACIÓN / RESPUESTA A PREGUNTA DE FILTRO (ESTRICTO):
+   - Si el cliente está RESPONDIENDO A UNA PREGUNTA DE FILTRO de un producto activo (ej. "azul de punta redonda", "uno azul y uno negro quisiera de marca bic de punta gruesa", "100 hojas a cuadros", "para colegio", "blanco de queso", "para pintar", "lapiz de grafito no pintura porfavor"):
+     * "intencion": "CONSULTA_PRODUCTO" (NUNCA "LISTA_COMPUESTA" NI "SELECCION_OPCION").
+     * "producto_principal": el nombre del producto en discusión (ej. "esfero" o "lapiz").
+     * "especificaciones_acumuladas": combina las características (ej. "esfero bic punta gruesa azul y negro").
      * "opcion_elegida_index": null
    - ÚNICAMENTE es "SELECCION_OPCION" cuando:
      1. Previamente se mostró una lista numerada 1️⃣, 2️⃣, 3️⃣ al cliente en las "OPCIONES ACTUALMENTE PRESENTADAS".
-     2. Y el cliente responde eligiendo por número o marca explícita (ej. "la 1", "el 2", "quiero el Bic", "el primero"). Si NO hay opciones numeradas presentadas, NUNCA es SELECCION_OPCION.
+     2. Y el cliente responde eligiendo por número o marca explícita (ej. "la 1", "el 2", "la opción 3", "quiero el Bic", "uno del 1 y uno del 2").
 
-9. AGREGAR A UN PEDIDO EXISTENTE (ACUMULAR LISTA):
-   Si el cliente ya tiene una cotización o producto elegido y dice "Y 3 de avengers", "agrégale 1 borrador", "también quiero 2 esferos":
-   - "intencion": "LISTA_COMPUESTA"
-   - "items_lista": DEBE incluir los productos previos ya cotizados en el historial MÁS el nuevo producto con sus cantidades.
+9. LISTA INICIAL DE MATERIALES (LISTA_COMPUESTA):
+   - ÚNICAMENTE cuando el cliente envía una lista de múltiples útiles escolares o de oficina al inicio (ej. "2 esferos, 2 borradores y 2 lápices", "3 cuadernos, 1 goma y 1 tijera").
+   - DEBES extraer ABSOLUTAMENTE TODOS los ítems en "items_lista" sin omitir ninguno.
 
 10. PAQUETES vs UNIDADES / CIENTOS / RESMAS (CONVERSIÓN COMERCIAL):
    - "1 ciento de cartulinas" = 100 hojas de cartulina. Si el producto de catálogo es "Paquete de cartulinas ... 25 unidades", cotiza 4 paquetes (100 / 25 = 4). NUNCA cotices 100 paquetes.
    - "1 resma de papel" = 1 unidad de resma (1 paquete de 500 hojas). La cantidad a cotizar es 1.
    - "1 docena" = 12 unidades. "media docena" = 6 unidades. "1 par" = 2 unidades.
-
-11. EXTRACCIÓN EXHAUSTIVA DE LISTAS DE ÚTILES Y DESGLOSE DE COLORES:
-   - Cuando el cliente pide múltiples útiles (ej. cuadernos, lápices bicolores, tijeras, borradores), DEBES extraer ABSOLUTAMENTE TODOS los ítems en "items_lista" sin omitir ninguno.
-   - Si el cliente desglosa o especifica colores o tipos para un producto (ej. "de esfero quiero uno azul y uno negro de punta gruesa", "1 azul y 1 rojo", "2 a cuadros y 1 a líneas"):
-     * "intencion": "LISTA_COMPUESTA"
-     * "items_lista": [{ "nombre": "esfero azul punta gruesa", "cantidad": 1 }, { "nombre": "esfero negro punta gruesa", "cantidad": 1 }]
-   - Si incluye una pregunta adicional (ej. "¿Hacen entregas a domicilio?"), clasifícalo como "LISTA_COMPUESTA" y asegúrate de no omitir ningún producto.
 
 RESPONDE SIEMPRE en JSON EXACTO:
 {
