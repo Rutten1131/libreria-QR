@@ -160,18 +160,29 @@ export function filtrarCandidatosPorCategoria(
     if (filtrados.length > 0) candidatos = filtrados;
   }
 
-  // 4. Post-filtro de pureza: si la categoría es "boligrafo", priorizar productos cuyo sustantivo PRINCIPAL sea bolígrafo/esfero
-  //    y no libretas/cuadernos que incluyen "+BOLIG" como accesorio
+  // 4. Post-filtro de pureza y relevancia para bolígrafos
   if (categoria?.familia === 'boligrafo') {
     const puros = candidatos.filter((p) => {
       const pn = norm(p.nombre);
       const pnClean = norm(limpiarNombreERP(p.nombre));
-      // El producto ES un bolígrafo si su nombre comienza con boligrafo/esfero/pluma O no es libreta/cuaderno
-      const esPuro = /^(boligrafo|esfero|pluma|pen |lapicero)/.test(pn) || /^(boligrafo|esfero|pluma|pen |lapicero)/.test(pnClean);
+      const esPuro = /^(boligrafo|esfero|pluma|pen |lapicero|bolig)/.test(pn) || /^(boligrafo|esfero|pluma|pen |lapicero|bolig)/.test(pnClean);
       const esAccesorio = /libreta|cuaderno|agenda|block|kit/.test(pn);
       return esPuro || !esAccesorio;
     });
     if (puros.length > 0) candidatos = puros;
+
+    // Priorizar marcas clásicas de papelería (Bic, Artline, Faber, Pelikan, Staedtler) sobre bolígrafos novelty/10 minas
+    const buscaNovedad = /10 minas|minas|personaje|kuromi|mario|futbol|astronauta|luz|llavero|cactus|labubu/i.test(textoNorm);
+    if (!buscaNovedad) {
+      const clasicos = candidatos.filter((p) => {
+        const pn = norm(p.nombre);
+        const esMarcaClasica = /bic|artline|faber|pelikan|staedtler|paper mate|pilot|uniball/i.test(pn);
+        const esNovedad = /10 mina|c\/luz|llavero|sanrio|kuromi|mario|cactus|labubu|oso panda|gato|avenger/i.test(pn);
+        return esMarcaClasica && !esNovedad;
+      });
+      const resto = candidatos.filter((p) => !clasicos.some((c) => c.id === p.id));
+      candidatos = [...clasicos, ...resto];
+    }
   }
 
   // Si el texto incluye "resma" o "bond", priorizar resmas y papel bond y no forros ni sobres
@@ -183,18 +194,39 @@ export function filtrarCandidatosPorCategoria(
     if (resmas.length > 0) candidatos = resmas;
   }
 
-  // 5. Filtro de términos calificativos específicos: si el usuario incluyó palabras muy específicas
-  // que no existen en el catálogo (ej. "propulsora", "cohete", "turbo", "voladora", "bluetooth", "inteligente"),
-  // no devolver productos genéricos que solo coincidan con la palabra raíz.
-  const triggersNorm = (categoria ? [categoria.familia, ...categoria.disparadores] : []).map(t => norm(t));
+  // 5. Filtro de color explícito para bolígrafos/esferos/marcadores
+  const colores = ['azul', 'negro', 'rojo', 'verde', 'morado', 'celeste', 'rosado', 'amarillo', 'dorado', 'plateado', 'blanco'];
+  for (const col of colores) {
+    if (textoNorm.includes(col)) {
+      const conColor = candidatos.filter((p) => {
+        const pn = norm(p.nombre) + ' ' + norm(limpiarNombreERP(p.nombre));
+        return pn.includes(col);
+      });
+      if (conColor.length > 0) {
+        candidatos = conColor;
+        break;
+      }
+    }
+  }
+
+  // 6. Filtro de términos calificativos imposibles (ej. "propulsora", "cohete", "turbo", "voladora", "bluetooth", "inteligente")
+  const triggersNorm = (categoria ? [categoria.familia, ...categoria.disparadores] : []).map((t) => norm(t));
+  const palabrasIgnoradas = [
+    'necesito', 'quiero', 'tienen', 'venden', 'cuanto', 'precio', 'ayuda', 'cotizar', 'busco', 'tipo', 'clase', 'alguna', 'alguno',
+    'punta', 'punto', 'grueso', 'gruesa', 'gruesos', 'gruesas', 'fino', 'fina', 'finos', 'finas', 'medio', 'media', 'redondo', 'redonda',
+    'escolar', 'escolares', 'colegio', 'oficina', 'escribir', 'pintar', 'dibujar', 'nino', 'hijo', 'hija', 'estudiante', 'bueno', 'buena', 'economico', 'economica', 'barato', 'barata',
+    'azul', 'negro', 'rojo', 'verde', 'blanco', 'morado', 'celeste', 'normal', 'normales', 'marca', 'lapiz', 'esfero', 'borrador', 'cuaderno'
+  ];
+
   const palabrasClave = textoNorm
     .split(/\s+/)
     .filter(
       (w) =>
         w.length >= 5 &&
-        !['necesito', 'quiero', 'tienen', 'venden', 'cuanto', 'precio', 'ayuda', 'cotizar', 'busco', 'tipo', 'clase', 'alguna'].includes(w) &&
-        !triggersNorm.some(t => t.includes(w) || w.includes(t))
+        !palabrasIgnoradas.includes(w) &&
+        !triggersNorm.some((t) => t.includes(w) || w.includes(t))
     );
+
   if (palabrasClave.length >= 2) {
     const palabrasInexistentes = palabrasClave.filter((pal) => {
       const palSingular = pal.replace(/(es|s)$/, '');
