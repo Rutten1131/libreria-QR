@@ -1048,13 +1048,8 @@ async function handleConsultaProducto(
   }
 
   // Buscar si existe imagen para el producto u opciones consultadas
-  // SOLO adjuntar foto si se están presentando opciones concretas en este mensaje (contiene 1️⃣)
-  let imagenInfo: any = null;
-  const seEstanPresentandoOpciones = mensajeFinal.includes('1️⃣');
-  if (seEstanPresentandoOpciones) {
-    const productoParaImagen = listaOpciones[0]?.nombre || queryBusqueda;
-    imagenInfo = buscarImagenProducto(productoParaImagen);
-  }
+  const productoParaImagen = listaOpciones[0]?.nombre || queryBusqueda;
+  const imagenInfo = buscarImagenProducto(productoParaImagen);
 
   // Guardar EXACTAMENTE las opciones presentadas para que el índice coincida al 100% con la elección del usuario
   return {
