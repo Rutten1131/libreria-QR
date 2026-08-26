@@ -763,18 +763,34 @@ async function handleSeleccionOpcion(
   // (ej. el cliente pidió 2 esferos pero está resolviendo 1 azul y luego 1 negro):
   const textoEsNumeroSolo = /^\d+$/.test(textoCliente.trim());
   let cantidad = 1;
-  if (!textoEsNumeroSolo && semantica.cantidad_comprar && semantica.cantidad_comprar > 1) {
+  const queryPrev = norm(contextoPrevio?.queryAcumulada || '');
+  const textoLimpioMin = norm(textoCliente)
+    .replace(/por\s*favor|porfavor|gracias|plz|pls/g, '')
+    .trim();
+
+  const esConfirmacionSimple =
+    /^(si|s[ií]|dale|ese|bueno|claro|an[oó]talo|de una|ok|el 1|la 1|1|el 2|la 2|2|el 3|la 3|3)$/i.test(
+      textoLimpioMin
+    );
+
+  // Si el cliente en su consulta previa pidió variantes divididas (ej. "1 azul y 1 negro", "uno azul", "1 negro"):
+  const pidioVariantes =
+    queryPrev.includes('1 azul') ||
+    queryPrev.includes('un azul') ||
+    queryPrev.includes('1 negro') ||
+    queryPrev.includes('un negro') ||
+    queryPrev.includes('1 rojo') ||
+    queryPrev.includes('uno de') ||
+    queryPrev.includes('1 de cada') ||
+    (queryPrev.includes('azul') && queryPrev.includes('negro'));
+
+  if (pidioVariantes && esConfirmacionSimple) {
+    cantidad = 1;
+  } else if (!textoEsNumeroSolo && semantica.cantidad_comprar && semantica.cantidad_comprar > 1) {
     cantidad = semantica.cantidad_comprar;
   } else if (contextoPrevio?.itemEnProceso?.cantidad === 1) {
     cantidad = 1;
-  } else if (
-    opciones.length === 1 &&
-    (/^(si|s[ií]|dale|ese|bueno|claro|por\s*favor|porfavor|an[oó]talo|de una|ok)/i.test(textoMin) ||
-      textoMin === '1' ||
-      textoMin === 'la 1' ||
-      textoMin === 'el 1')
-  ) {
-    // El bot preguntó por 1 modelo específico (ej. "¿Te llevamos este Bic azul?"), consumir 1 unidad
+  } else if (opciones.length === 1 && esConfirmacionSimple) {
     cantidad = 1;
   } else if (contextoPrevio?.itemEnProceso?.cantidad) {
     cantidad = contextoPrevio.itemEnProceso.cantidad;
