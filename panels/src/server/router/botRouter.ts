@@ -774,12 +774,7 @@ async function handleSeleccionOpcion(
     .replace(/por\s*favor|porfavor|gracias|plz|pls/g, '')
     .trim();
 
-  const esConfirmacionSimple =
-    /^(si|s[ií]|dale|ese|bueno|claro|an[oó]talo|de una|ok|el 1|la 1|1|el 2|la 2|2|el 3|la 3|3)$/i.test(
-      textoLimpioMin
-    );
-
-  // Si el cliente en su consulta previa pidió variantes divididas (ej. "1 azul y 1 negro", "uno azul", "1 negro"):
+  // Si en la consulta previa o mensaje actual se pidieron variantes divididas (ej. "1 azul y 1 negro", "uno azul", "1 negro"):
   const pidioVariantes =
     queryPrev.includes('1 azul') ||
     queryPrev.includes('un azul') ||
@@ -788,15 +783,31 @@ async function handleSeleccionOpcion(
     queryPrev.includes('1 rojo') ||
     queryPrev.includes('uno de') ||
     queryPrev.includes('1 de cada') ||
-    (queryPrev.includes('azul') && queryPrev.includes('negro'));
+    (queryPrev.includes('azul') && queryPrev.includes('negro')) ||
+    textoLimpioMin.includes('de azul') ||
+    textoLimpioMin.includes('el azul') ||
+    textoLimpioMin.includes('de negro') ||
+    textoLimpioMin.includes('el negro');
 
-  if (pidioVariantes && esConfirmacionSimple) {
+  const pidioLosDosMismo =
+    textoLimpioMin.includes('los 2') ||
+    textoLimpioMin.includes('los dos') ||
+    textoLimpioMin.includes('ambos') ||
+    textoLimpioMin.includes('las dos') ||
+    textoLimpioMin.includes('las 2') ||
+    textoLimpioMin.includes('2 de') ||
+    textoLimpioMin.includes('dos de');
+
+  if (pidioLosDosMismo && contextoPrevio?.itemEnProceso?.cantidad) {
+    cantidad = contextoPrevio.itemEnProceso.cantidad;
+  } else if (pidioVariantes) {
     cantidad = 1;
   } else if (!textoEsNumeroSolo && semantica.cantidad_comprar && semantica.cantidad_comprar > 1) {
     cantidad = semantica.cantidad_comprar;
   } else if (contextoPrevio?.itemEnProceso?.cantidad === 1) {
     cantidad = 1;
-  } else if (opciones.length === 1 && esConfirmacionSimple) {
+  } else if (opciones.length === 1) {
+    // Si solo se presentó 1 opción y el usuario no dijo "los dos", consumir 1
     cantidad = 1;
   } else if (contextoPrevio?.itemEnProceso?.cantidad) {
     cantidad = contextoPrevio.itemEnProceso.cantidad;
@@ -851,7 +862,12 @@ async function handleSeleccionOpcion(
     // encolar el restante para que el bot pregunte por el otro color/modelo antes de pasar a los siguientes ítems
     if (contextoPrevio?.itemEnProceso && cantidadEnProceso > cantidad) {
       const cantRestante = cantidadEnProceso - cantidad;
-      const nombreRestante = contextoPrevio.itemEnProceso.itemRaw;
+      let nombreRestante = contextoPrevio.itemEnProceso.itemRaw;
+      if (textoLimpioMin.includes('negro') || queryPrev.includes('negro')) {
+        nombreRestante = 'esfero negro';
+      } else if (textoLimpioMin.includes('rojo') || queryPrev.includes('rojo')) {
+        nombreRestante = 'esfero rojo';
+      }
       colaActualizada.unshift({
         itemRaw: `${nombreRestante}`,
         cantidad: cantRestante,
@@ -1032,8 +1048,13 @@ async function handleConsultaProducto(
   }
 
   // Buscar si existe imagen para el producto u opciones consultadas
-  const productoParaImagen = listaOpciones[0]?.nombre || queryBusqueda;
-  const imagenInfo = buscarImagenProducto(productoParaImagen);
+  // SOLO adjuntar foto si se están presentando opciones concretas en este mensaje (contiene 1️⃣)
+  let imagenInfo: any = null;
+  const seEstanPresentandoOpciones = mensajeFinal.includes('1️⃣');
+  if (seEstanPresentandoOpciones) {
+    const productoParaImagen = listaOpciones[0]?.nombre || queryBusqueda;
+    imagenInfo = buscarImagenProducto(productoParaImagen);
+  }
 
   // Guardar EXACTAMENTE las opciones presentadas para que el índice coincida al 100% con la elección del usuario
   return {

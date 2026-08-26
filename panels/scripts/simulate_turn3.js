@@ -37,7 +37,7 @@ async function simulate() {
   console.log('\n--- TURNO 3: ELEGIR AZUL Y PREGUNTAR POR NEGRO ---');
   let r3 = await despacharMensajeWhatsApp(
     tenantId,
-    'Dame 1 azul porfdavor, en negro que opciones tienes?',
+    'Si, ese quiero de azul, de negro cuales tiene?',
     'Cristhopher',
     '593983237491',
     r2.nuevoContexto,
@@ -47,6 +47,7 @@ async function simulate() {
   console.log('R3 Cola:', JSON.stringify(r3.nuevoContexto.colaPendientes));
   console.log('R3 EnProceso:', JSON.stringify(r3.nuevoContexto.itemEnProceso));
   console.log('R3 Carrito:', JSON.stringify(r3.nuevoContexto.carrito));
+  console.log('R3 Imagen adjunta:', !!r3.imagenUrl || !!r3.imagenBase64);
   console.log('R3 Respuesta:\n', r3.textoRespuesta);
 }
 
