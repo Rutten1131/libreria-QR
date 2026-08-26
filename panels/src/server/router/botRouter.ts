@@ -23,6 +23,7 @@ import {
 } from '../adapters/iaAdapter';
 import { buscarCategoriaParaItem } from '../knowledge/index';
 import { limpiarNombreERP, generarSugerenciaVentaCruzada } from '../services/displayService';
+import { buscarImagenProducto } from '../services/productImageService';
 
 export interface MensajeHistorial {
   role: 'user' | 'model';
@@ -42,11 +43,11 @@ export interface ItemPendiente {
 }
 
 export interface RouterContexto {
-  historialMensajes?: MensajeHistorial[];
   queryAcumulada?: string;
+  cantidad?: number;
   opcionesPresentadas?: CandidatoProducto[];
   productoSeleccionado?: CandidatoProducto | null;
-  cantidad?: number;
+  historialMensajes?: MensajeHistorial[];
   pedidoId?: string;
   total?: number;
   itemsCount?: number;
@@ -58,6 +59,8 @@ export interface RouterContexto {
 export interface ResultadoRouter {
   tipo: 'mensaje_directo' | 'pregunta_variante' | 'cotizacion' | 'pedido_confirmado' | 'reset';
   textoRespuesta: string;
+  imagenBase64?: string;
+  imagenMimeType?: 'image/jpeg' | 'image/png';
   nuevoContexto: RouterContexto;
   pedidoId?: string;
   total?: number;
@@ -1005,10 +1008,16 @@ async function handleConsultaProducto(
     }
   }
 
+  // Buscar si existe imagen para el producto u opciones consultadas
+  const productoParaImagen = listaOpciones[0]?.nombre || queryBusqueda;
+  const imagenInfo = buscarImagenProducto(productoParaImagen);
+
   // Guardar EXACTAMENTE las opciones presentadas para que el índice coincida al 100% con la elección del usuario
   return {
     tipo: 'pregunta_variante',
     textoRespuesta: mensajeFinal,
+    imagenBase64: imagenInfo?.base64,
+    imagenMimeType: imagenInfo?.mimeType,
     nuevoContexto: {
       queryAcumulada: queryBusqueda,
       cantidad,

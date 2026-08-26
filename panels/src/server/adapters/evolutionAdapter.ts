@@ -238,6 +238,14 @@ export async function consultarDetalleInstancia(instanceName: string): Promise<{
   }
 }
 
+export interface MensajeMedia {
+  numero: string;
+  mediaBase64: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
+  caption?: string;
+  fileName?: string;
+}
+
 /* ============================================================
    E. ENVIAR MENSAJE
    ============================================================ */
@@ -258,6 +266,34 @@ export async function enviarMensaje(instanceName: string, mensaje: MensajeTexto)
 
   if (!res.ok) {
     throw new Error(`Evolution sendText ${res.status}: ${await res.text()}`);
+  }
+}
+
+export async function enviarMedia(instanceName: string, mensaje: MensajeMedia): Promise<void> {
+  if (!EVOLUTION_API_KEY) {
+    console.warn('[evolution] apiKey no configurada — media NO enviada (modo stub)');
+    return;
+  }
+
+  const mediaStr = mensaje.mediaBase64.startsWith('data:')
+    ? mensaje.mediaBase64
+    : `data:${mensaje.mimeType};base64,${mensaje.mediaBase64}`;
+
+  const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/message/sendMedia/${instanceName}`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({
+      number: mensaje.numero,
+      mediatype: mensaje.mimeType.startsWith('application') ? 'document' : 'image',
+      mimetype: mensaje.mimeType,
+      caption: mensaje.caption || '',
+      media: mediaStr,
+      fileName: mensaje.fileName || 'producto.jpg',
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Evolution sendMedia ${res.status}: ${await res.text()}`);
   }
 }
 

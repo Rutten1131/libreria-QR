@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabase } from '@/server/adapters/supabaseClient';
 import { procesarListaCliente } from '@/server/orchestrate/whatsappOrchestrator';
-import { validarWebhookEvolution, enviarMensaje } from '@/server/adapters/evolutionAdapter';
+import { validarWebhookEvolution, enviarMensaje, enviarMedia } from '@/server/adapters/evolutionAdapter';
 import { limpiarNombreERP, generarSugerenciaVentaCruzada } from '@/server/services/displayService';
 import {
   obtenerConversacion,
@@ -300,11 +300,29 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Enviar la respuesta del bot al cliente por WhatsApp
-        await enviarMensaje(datos.instanceName, {
-          numero: datos.numero,
-          texto: resultado.textoRespuesta,
-        });
+        // Enviar la respuesta del bot al cliente por WhatsApp (con foto adjunta si existe)
+        try {
+          if (resultado.imagenBase64) {
+            console.log(`[Webhook WhatsApp] Enviando imagen adjunta de producto (${resultado.imagenMimeType})...`);
+            await enviarMedia(datos.instanceName, {
+              numero: datos.numero,
+              mediaBase64: resultado.imagenBase64,
+              mimeType: resultado.imagenMimeType || 'image/jpeg',
+              caption: resultado.textoRespuesta,
+            });
+          } else {
+            await enviarMensaje(datos.instanceName, {
+              numero: datos.numero,
+              texto: resultado.textoRespuesta,
+            });
+          }
+        } catch (errMedia) {
+          console.warn('[Webhook WhatsApp] Error al enviar media, usando fallback a texto plano:', errMedia);
+          await enviarMensaje(datos.instanceName, {
+            numero: datos.numero,
+            texto: resultado.textoRespuesta,
+          });
+        }
 
         return NextResponse.json({
           ok: true,
