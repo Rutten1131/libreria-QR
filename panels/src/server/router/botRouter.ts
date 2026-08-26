@@ -158,8 +158,9 @@ export async function despacharMensajeWhatsApp(
   }
 
   // R2.5: Si hay opciones activas en pantalla y el cliente dice "Bueno dame 2 tijeras", "dame 2 cuadernos"
+  // Solo aplica si NO hay cola de materiales pendiente (para no cortar el flujo consultivo)
   const matchDirectoQty = textoNormQ.match(/^(?:bueno\s+)?(?:dame|ponme|quiero|llevo|agrega)\s+(\d+)\s+([a-zñáéíóú]+)/i);
-  if (matchDirectoQty && opcionesActivas.length > 0) {
+  if (matchDirectoQty && opcionesActivas.length > 0 && (!contextoPrevio?.colaPendientes || contextoPrevio.colaPendientes.length === 0)) {
     const cantDirecta = parseInt(matchDirectoQty[1], 10);
     const prodMencionado = norm(matchDirectoQty[2]);
     const opcionElegida = opcionesActivas.find(o => norm(o.nombre).includes(prodMencionado.replace(/(es|s)$/, ''))) || opcionesActivas[0];
@@ -235,6 +236,11 @@ export async function despacharMensajeWhatsApp(
   }
 
   // ─── FIN REGLAS DETERMINÍSTICAS ───────────────────────────────────────────────
+
+  // Si la IA clasificó como SELECCION_OPCION pero NO hay opciones activas en pantalla, es CONSULTA_PRODUCTO
+  if (semantica.intencion === 'SELECCION_OPCION' && (!opcionesActivas || opcionesActivas.length === 0)) {
+    semantica.intencion = 'CONSULTA_PRODUCTO';
+  }
 
   console.log(`[BotRouter] Intención: ${semantica.intencion} | Prod: ${semantica.producto_principal} | Cant: ${semantica.cantidad_comprar} | OptIndex: ${semantica.opcion_elegida_index}`);
 
