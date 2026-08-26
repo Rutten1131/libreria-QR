@@ -302,10 +302,11 @@ export async function POST(req: NextRequest) {
 
         // Enviar la respuesta del bot al cliente por WhatsApp (con foto adjunta si existe)
         try {
-          if (resultado.imagenBase64) {
-            console.log(`[Webhook WhatsApp] Enviando imagen adjunta de producto (${resultado.imagenMimeType})...`);
+          if (resultado.imagenUrl || resultado.imagenBase64) {
+            console.log(`[Webhook WhatsApp] Enviando imagen adjunta de producto (${resultado.imagenUrl || 'base64'})...`);
             await enviarMedia(datos.instanceName, {
               numero: datos.numero,
+              mediaUrl: resultado.imagenUrl,
               mediaBase64: resultado.imagenBase64,
               mimeType: resultado.imagenMimeType || 'image/jpeg',
               caption: resultado.textoRespuesta,

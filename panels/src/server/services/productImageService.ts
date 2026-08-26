@@ -3,12 +3,14 @@ import path from 'path';
 
 export interface ImagenProductoInfo {
   nombreArchivo: string;
-  rutaAbsoluta: string;
-  base64: string;
+  url: string;
+  rutaAbsoluta?: string;
+  base64?: string;
   mimeType: 'image/jpeg' | 'image/png';
 }
 
 const IMAGENES_DIR = path.resolve(process.cwd(), 'public/imagenes');
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://libreria-qr-brown.vercel.app';
 
 // Mapeo inteligente de palabras clave a archivos de imagen en public/imagenes
 const MAPA_IMAGENES: Array<{
@@ -67,7 +69,7 @@ const MAPA_IMAGENES: Array<{
 
 /**
  * Busca si existe una imagen relevante para un producto o texto de consulta.
- * Si existe, lee el archivo y lo devuelve en Base64 para enviarlo por WhatsApp.
+ * Devuelve la URL pública y el Base64 (si existe en disco).
  */
 export function buscarImagenProducto(textoOProducto: string): ImagenProductoInfo | null {
   if (!textoOProducto) return null;
@@ -78,21 +80,24 @@ export function buscarImagenProducto(textoOProducto: string): ImagenProductoInfo
 
   for (const item of MAPA_IMAGENES) {
     if (item.match(norm)) {
+      const url = `${APP_URL}/imagenes/${encodeURIComponent(item.archivo)}`;
+      let base64: string | undefined = undefined;
       const ruta = path.join(IMAGENES_DIR, item.archivo);
       if (fs.existsSync(ruta)) {
         try {
-          const buffer = fs.readFileSync(ruta);
-          const base64 = buffer.toString('base64');
-          return {
-            nombreArchivo: item.archivo,
-            rutaAbsoluta: ruta,
-            base64,
-            mimeType: item.archivo.endsWith('.png') ? 'image/png' : 'image/jpeg',
-          };
+          base64 = fs.readFileSync(ruta).toString('base64');
         } catch (err) {
-          console.warn(`[ProductImageService] Error leyendo imagen ${ruta}:`, err);
+          console.warn(`[ProductImageService] Error leyendo buffer ${ruta}:`, err);
         }
       }
+
+      return {
+        nombreArchivo: item.archivo,
+        url,
+        rutaAbsoluta: ruta,
+        base64,
+        mimeType: item.archivo.endsWith('.png') ? 'image/png' : 'image/jpeg',
+      };
     }
   }
 

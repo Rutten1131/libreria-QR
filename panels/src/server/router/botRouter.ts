@@ -59,6 +59,7 @@ export interface RouterContexto {
 export interface ResultadoRouter {
   tipo: 'mensaje_directo' | 'pregunta_variante' | 'cotizacion' | 'pedido_confirmado' | 'reset';
   textoRespuesta: string;
+  imagenUrl?: string;
   imagenBase64?: string;
   imagenMimeType?: 'image/jpeg' | 'image/png';
   nuevoContexto: RouterContexto;
@@ -1016,6 +1017,7 @@ async function handleConsultaProducto(
   return {
     tipo: 'pregunta_variante',
     textoRespuesta: mensajeFinal,
+    imagenUrl: imagenInfo?.url,
     imagenBase64: imagenInfo?.base64,
     imagenMimeType: imagenInfo?.mimeType,
     nuevoContexto: {

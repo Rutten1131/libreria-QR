@@ -240,7 +240,8 @@ export async function consultarDetalleInstancia(instanceName: string): Promise<{
 
 export interface MensajeMedia {
   numero: string;
-  mediaBase64: string;
+  mediaBase64?: string;
+  mediaUrl?: string;
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf';
   caption?: string;
   fileName?: string;
@@ -275,9 +276,16 @@ export async function enviarMedia(instanceName: string, mensaje: MensajeMedia): 
     return;
   }
 
-  const mediaStr = mensaje.mediaBase64.startsWith('data:')
-    ? mensaje.mediaBase64
-    : `data:${mensaje.mimeType};base64,${mensaje.mediaBase64}`;
+  let mediaStr = mensaje.mediaUrl;
+  if (!mediaStr && mensaje.mediaBase64) {
+    mediaStr = mensaje.mediaBase64.startsWith('data:')
+      ? mensaje.mediaBase64
+      : `data:${mensaje.mimeType};base64,${mensaje.mediaBase64}`;
+  }
+
+  if (!mediaStr) {
+    throw new Error('enviarMedia requiere mediaUrl o mediaBase64');
+  }
 
   const res = await fetchConRetry(`${EVOLUTION_BASE_URL}/message/sendMedia/${instanceName}`, {
     method: 'POST',
