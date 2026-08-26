@@ -200,9 +200,9 @@ export async function despacharMensajeWhatsApp(
     }
   }
 
-  // R4: Confirmación determinística si el cliente responde "sí", "confirmo", "dale", "listo" teniendo una cotización activa Y sin ítems pendientes
-  const esConfirmacion = /^(s[ií]|confirmo|si confirmo|s[ií] confirmo|confirmo el pedido|s[ií] confirmo el pedido|s[ií],?\s*listo confirmo|confirmo mi compra|confirmo mi pedido|dale|de acuerdo|listo|perfecto confirmo)/i.test(textoNormQ);
-  if (esConfirmacion && contextoPrevio?.pedidoId && (!contextoPrevio?.colaPendientes || contextoPrevio.colaPendientes.length === 0)) {
+  // R4: Confirmación determinística si el cliente responde "sí", "confirmo", "confirmado", "confirmar", "dale", "listo", "de acuerdo", etc. teniendo una cotización activa Y sin ítems pendientes
+  const esConfirmacion = /^(s[ií]|confirmo|confirmado|confirmada|confirmar|si confirmo|s[ií] confirmo|s[ií] confirmado|confirmo el pedido|confirmado el pedido|confirmo mi compra|confirmado mi pedido|dale|de acuerdo|listo|perfecto|de una|ok|proceder|quiero comprar|hagan el pedido|hacer pedido|si deseo confirmar|deseo confirmar)/i.test(textoNormQ);
+  if (esConfirmacion && (contextoPrevio?.pedidoId || (contextoPrevio?.carrito && contextoPrevio.carrito.length > 0)) && (!contextoPrevio?.colaPendientes || contextoPrevio.colaPendientes.length === 0)) {
     return await handleConfirmacion(tenantId, clienteNombre, clienteTelefono, contextoPrevio);
   }
 

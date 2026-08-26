@@ -479,7 +479,7 @@ REGLAS CRÍTICAS:
        ➔ "opcion_elegida_index": 1
        ➔ "cantidad_comprar": 1 (o la cantidad en proceso)
        * NUNCA lo clasifiques como "CONFIRMACION" porque el cliente solo está aceptando ese producto, no cerrando toda la compra.
-   - ÚNICAMENTE es "CONFIRMACION" cuando el bot YA envió el mensaje final con "💰 TOTAL ESTIMADO" / "👉 ¿Deseas confirmar tu pedido?" y el cliente responde "sí", "confirmo", "dale", "listo".
+    - ÚNICAMENTE es "CONFIRMACION" cuando el bot YA envió el mensaje final con "💰 TOTAL ESTIMADO" / "👉 ¿Deseas confirmar tu pedido?" y el cliente responde "sí", "confirmo", "confirmado", "confirmar", "dale", "listo", "de acuerdo", "perfecto", "ok", "de una".
 
 7. SALUDO: ÚNICAMENTE si el mensaje es SOLO un saludo aislado (ej. "hola", "buenas", "buenos días") y NO contiene ninguna pregunta de producto. Si el cliente dice "Hola, tienes cuadernos..." o "Buenas tardes, necesito esferos", es SIEMPRE CONSULTA_PRODUCTO o LISTA_COMPUESTA.
 

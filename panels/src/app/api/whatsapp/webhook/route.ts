@@ -356,6 +356,15 @@ export async function POST(req: NextRequest) {
       if (!conv) {
         conv = await crearConversacion(tenantIdReal, datos.numero);
       }
+
+      // Construir carrito completo desde la cotización para que Ruta A pueda confirmar
+      const carritoRutaB = itemsDisponibles.map((i: any) => ({
+        productoId: i.productoId,
+        nombre: i.nombre,
+        precioUnitario: i.precioUnitario,
+        cantidad: i.cantidad,
+      }));
+
       await actualizarConversacion(conv.id, {
         estadoActual: 'CONFIRMANDO_COTIZACION',
         requiereHumano: false,
@@ -364,6 +373,12 @@ export async function POST(req: NextRequest) {
           total: resultado.cotizacion?.total || 0,
           itemsCount: itemsDisponibles.length,
           faltantesCount: faltantes.length,
+          carrito: carritoRutaB,
+          colaPendientes: [],
+          historialMensajes: [
+            { role: 'user', texto: datos.texto || '(lista escolar en foto/PDF)' },
+            { role: 'model', texto: `Cotización lista: ${itemsDisponibles.length} útiles por $${(resultado.cotizacion?.total || 0).toFixed(2)}. ¿Deseas confirmar tu pedido?` },
+          ],
         },
       });
 
